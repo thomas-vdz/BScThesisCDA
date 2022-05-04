@@ -1,0 +1,28 @@
+Functionaliteit handelsplatform o.b.v. FACTS:
+- bijhouden schaduwadministratie (voor toetsing validiteit, zie onder)
+	* initialiseren / reset (na verloop van tijd worden hoeveelheden ge-reset)
+	* updaten bij transacties (zie onder)
+- toetsen of offers valide zijn
+	* heeft koper geld / heeft aanbieder goed?
+	* evt. is een offer nog steeds geldig (i.e. niet verstreken)?
+	* evt. zijn hoeveelheden deelbaar?
+	* zijn prijs en hoeveelheid > 0?
+	* verbetert een offer de bied- of laatprijs?
+- bijhouden beste bid en ask
+	* leg offers met max(bid), min(ask) prijs vast (ook hoeveelheid, owners)
+	* publiceer na iedere wijziging
+	* reset (als hoeveelheden worden teruggezet, bids/asks verwijderen)
+- cancellen van eigen offer
+- testen of bid > ask
+- uitvoeren transactie:
+	* bepalen transactie-prijs (oudste van bid of ask prijs)
+	* vaststellen hoeveelheid (minimum van bid, ask hoeveelheid)
+	* updaten best bid en ask
+	* updaten schaduwadministratie
+	* informeren betrokken traders
+- rapportage van offers en transacties (naar csv file)
+
+
+Onderstaand is documentatie van Dave Cliff:
+https://research-information.bris.ac.uk/ws/portalfiles/portal/167944812/Cliff_i3M_CRC_formatted_repository.pdf
+
