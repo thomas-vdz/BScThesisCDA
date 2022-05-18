@@ -4,6 +4,10 @@ Created on Tue May  3 10:22:34 2022
 
 @author: Gebruiker
 """
+import csv
+import random
+from tqdm import tqdm
+
 
 class Order:
     
@@ -26,8 +30,7 @@ class Order:
     def __str__(self):
         return f"Order{self.oid}: trader{self.tid} posted a {self.otype} {self.price} per unit for {self.quantity} of good {self.ptype} at t={self.time}"
 
-testorder = Order(1,1,"bid", "X", 5, 10, 1)
-print(testorder)
+
 
 class Orderbook:
     #Define min/max price so 
@@ -48,11 +51,13 @@ class Orderbook:
         #Test if there is a best-ask/bid present and report it in the anon_lob else return a empty tuple
         #For loop to avoid writing the same line 4 times
         for pair in [("X","bid"),("X","ask"),("Y","bid"),("Y","ask")]:
+            
+            #Check for each pair if there is an order in the orderbook and anonymize it
             if self.lob[pair[0]].get(pair[1]) is not None:
                 order = self.lob[pair[0]].get(pair[1])                
                 self.alob[pair[0]][pair[1]] = [order.price, order.quantity]
             else:
-                #return empty tuple
+                #return empty order
                 self.alob[pair[0]][pair[1]] = []
                 
                 
@@ -69,6 +74,7 @@ class Orderbook:
                     #ignore the order
                     pass
             elif order.otype == "ask":
+                #If the ordertype is ask replace the current bid if the price of the offer is lower
                 if order.price < self.lob[order.ptype]["ask"].price:
                     self.lob[order.ptype][order.otype] = order
                 else:
@@ -83,31 +89,36 @@ class Orderbook:
     
 
 class Exchange(Orderbook):
-    
-    
+            
     
     def __init__(self):
+        self.minprice = 1  # minimum price in the system, in cents/pennies
+        self.maxprice = 200  # maximum price in the system, in cents/pennies
         
-        self.ob = Orderbook()
-        #Agents and their endowments [#money,#productX,#productY]
-        self.agents = {
-            1:{"money":1000,"X":1000,"Y":1000},
-            2:{"money":1000,"X":100,"Y":100},
-            3:{"money":1000,"X":100,"Y":100},
-            }
+        self.ob = Orderbook() #Orderbook
         
     
-    def process_order(self, order):        
+    def process_order(self, time, order, balance):        
+        trade = None
         
         if order.otype == "ask":
             #Check if they have enough to post the offer
-            if order.quantity <= self.agents[order.tid][order.ptype]:
-                                 
-                #Then check if the ask crosses the bid
-                if order.price <= self.ob.lob[order.ptype]["bid"].price:
+            if order.quantity <= balance[order.ptype]:
+                
+                #Set the floor bid to minimum price if there is no current best floor 
+                #To prevent the comparison to see if ask crosses bid to fail
+                if self.ob.lob[order.ptype].get("bid") is None:
+                    floorprice = self.minprice
+                else:
+                    floorprice = self.ob.lob[order.ptype].get("bid").price
+                    
+                
+                #Check if the ask crosses the bid if so trade can occur else add the order to the book
+                if order.price <= floorprice:
                     
                     #Get ID of counterparty                                       
                     buyer_id = self.ob.lob[order.ptype]["bid"].tid 
+                    seller_id = order.tid
                     
                     #Partial sell: update quantity
                     if order.quantity < self.ob.lob[order.ptype]["bid"].quantity:
@@ -118,34 +129,44 @@ class Exchange(Orderbook):
                     
                     #Full sell: remove order
                     else:                        
-                        #If we offer more than is able to be bought do we create a new transaction and give it as best bid
+                        #If we offer more than is able to be bought do we create a new transaction and give it as best bid?
                         quant_sold = self.ob.lob[order.ptype]["bid"].quantity
-                        price_sold = self.ob.lob[order.ptype]["ask"].price
+                        price_sold = self.ob.lob[order.ptype]["bid"].price
                         del self.ob.lob[order.ptype]["bid"]
                     
-                    #Update endowments
-                   
-                    self.agents[order.tid][order.ptype] -= quant_sold
-                    self.agents[order.tid]["money"] += quant_sold * price_sold
+                    #Create trade for book keeping (we might add type here if we want to save other transactions like cancellations)                
+                    trade = {"time" : time,
+                             "buyer_id" : buyer_id,
+                             "seller_id" : seller_id,
+                             "price" : price_sold,
+                             "quantity" : quant_sold,
+                             "ptype" : order.ptype
+                             }
                     
-                    self.agents[buyer_id][order.ptype] += quant_sold
-                    self.agents[buyer_id]["money"] -= quant_sold * price_sold
+                    return trade
                                                         
                 else:
-                    self.add_order_lob(order)
+                    self.ob.add_order_lob(order)
         
             else:
                 print("Not enough goods")
                 
         elif order.otype == "bid":
             #Check if they have enough money to post the bid
-            if (order.price * order.quantity) <= self.agents[order.tid]["money"]:
+            if (order.price * order.quantity) <= balance["money"]:
                                  
-                #Then check if the bid crosses the ask
-                if order.price >= self.ob.lob[order.ptype]["ask"].price:
+                #Set the floor ask to maximum price if there is no current best floor 
+                #To prevent the comparison to see if bid crosses ask to fail
+                if self.ob.lob[order.ptype].get("ask") is None:
+                    floorprice = self.maxprice 
+                else:
+                    floorprice = self.ob.lob[order.ptype].get("ask").price
+                    
+                #Check if the bid crosses the ask
+                if order.price >= floorprice:
                     #Get id of counterparty
                     seller_id = self.ob.lob[order.ptype]["ask"].tid 
-                    
+                    buyer_id  = order.tid
                     #Partial buy: update quantity
                     if order.quantity < self.ob.lob[order.ptype]["ask"].quantity:
                         self.ob.lob[order.ptype]["ask"].quantity -= order.quantity                        
@@ -160,50 +181,272 @@ class Exchange(Orderbook):
                         price_sold = self.ob.lob[order.ptype]["ask"].price
                         del self.ob.lob[order.ptype]["ask"]
                     
-                    #Update endowments
-                                                        
-                    self.agents[order.tid][order.ptype] += quant_sold
-                    self.agents[order.tid]["money"] -= quant_sold * price_sold
-                    
-                    self.agents[seller_id][order.ptype] -= quant_sold
-                    self.agents[seller_id]["money"] += quant_sold * price_sold                                        
+                    #Create trade for book keeping (we might add type here if we want to save other transactions like cancellations)                
+                    trade = {"time" : time,
+                             "buyer_id" : buyer_id,
+                             "seller_id" : seller_id,
+                             "price" : price_sold,
+                             "quantity" : quant_sold,
+                             "ptype" : order.ptype
+                             }
+                    return trade                                     
                 
                 else:
-                    self.add_order_lob(order)
+                    self.ob.add_order_lob(order)
             else:
                 print("Not enough money")
         else:
-            print("Something is wrong with the order")
+            raise ValueError("Offer was neither a bid nor an ask")
         
     
     def publish_alob(self):
+        """Updates the anonymous LOB"""
         self.ob.anon_lob()
         return self.ob.alob
     
-    def print_endowments(self):        
-        print(self.agents)
+
     
 
-     
-o = Exchange()
+   
 
-o.ob.add_order_lob(Order(1,1,"bid", "X", 5, 10, 1))   
-o.ob.add_order_lob(Order(2,1,"bid", "X", 7, 10, 2))   
-o.ob.add_order_lob(Order(3,1,"ask", "X", 20, 10, 3))   
-o.ob.add_order_lob(Order(4,1,"ask", "X", 15, 10, 4))
-o.ob.add_order_lob(Order(1,1,"bid", "Y", 5, 10, 1))   
-o.ob.add_order_lob(Order(2,1,"bid", "Y", 7, 10, 2))   
-o.ob.add_order_lob(Order(3,1,"ask", "Y", 20, 10, 3))   
-o.ob.add_order_lob(Order(4,1,"ask", "Y", 15, 10, 4))
-
-print(o.publish_alob())
-
-
-o.process_order(Order(1,2,"ask", "X", 6, 5000, 2))
-
-
-print(o.publish_alob())
-
-o.print_endowments()
-
+class Trader:
+    
+    def __init__(self, tid, ttype, talgo, balance):
+        self.minprice = 2  # minimum price in the system, in cents/pennies
+        self.maxprice = 199  # maximum price in the system, in cents/pennies
+        self.tid = tid #Integer: Unique identifier for each trader
+        self.ttype = ttype #Integer: 1,2,3 specifies which utility function the trader has
+        self.talgo = talgo #String: What kind of trader it is: ZIP,ZIC eGD etc
+        self.balance = balance #Dictionary containing the balance of the trader
+        self.blotter = [] #List of executed trades
+        self.utility = self.calc_utility()
         
+        
+        
+        
+    def calc_utility(self):
+        """Function returning the current utility level given the balance and trader type"""
+        
+        if self.ttype == 1:
+            self.utility = min( self.balance["money"]/400, self.balance["Y"]/20)            
+        elif self.ttype == 2:
+            self.utility = min( self.balance["money"]/400, self.balance["X"]/10)
+        elif self.ttype == 3:
+            self.utility = min( self.balance["X"]/10, self.balance["Y"]/20)
+        else:
+            raise ValueError("Invalid trader type. Traders must be of type 1, 2 or 3 INTEGER")
+        
+    
+    
+    def bookkeep(self, trade):
+        
+        #Add the transaction to blotter
+        self.blotter.append(trade)
+        
+        
+        #Check if its the buyer or seller of the trade and update balances
+        if trade["buyer_id"] == self.tid:
+            
+            #Add goods of correct type
+            self.balance[ trade["ptype"] ] += trade["quantity"]
+            #Subtract money
+            self.balance["money"] -= trade["quantity"] * trade["price"]
+            
+        elif trade["seller_id"] == self.tid:
+            
+            #Subtract goods of correct type
+            self.balance[ trade["ptype"] ] -= trade["quantity"]
+            #Add money
+            self.balance["money"] += trade["quantity"] * trade["price"]
+            
+        else:
+            raise ValueError("Trader was not involved in this trade")
+        
+        #Recalculate utility
+        self.calc_utility()
+        
+        #Return new balance and utility level after transaction
+        return [self.balance , self.utility]
+    
+    #This method will be overwritten by the different traders
+    def get_order(self, time, lob):
+        """ Given the orderbook give an order """
+        pass
+    
+    #This method will be overwritten by the different traders
+    def response(self, time, orderbook, trade):
+        """ Given the orderbook post an order """
+        pass
+     
+
+
+
+class Trader_ZI(Trader):
+    """Trader with no intelligence restricted to posting offers it can complete"""
+    def get_order(self, time, lob):
+        
+        money = self.balance["money"]
+        
+        #Gives list which goods the trader has more than one of
+        available_goods = [item for item in ["X","Y"] if self.balance[item] > 0 ]
+        
+        quantity = 1 
+        
+        #Check if trader has money and at least one good then choose randomly to bid or ask
+        if money > 0 and len(available_goods) > 0 :
+            
+            #Choose to bid or ask
+            action = random.choice(["bid", "ask"])
+            
+            #If bid choose a random good to bid on choose a price 
+            if action == "bid":
+                good = random.choice(["X", "Y"])
+                #Choose random price max is maxprice or money left whatever is less
+                try:
+                    price = random.randint( self.minprice, min(self.maxprice, money) )
+                except:
+                    #If error is raised because minprice==money then just set price to the amount of money
+                    price = money
+                 
+                
+            elif action == "ask":
+                good = random.choice(available_goods)
+                price = random.randint( self.minprice, self.maxprice )
+        
+        #Only money: post a random bid on a random good        
+        elif money > 0:
+            action = "bid"
+            good = random.choice(["X", "Y"])
+            #Choose random price max is maxprice or money left whatever is less
+            try:
+                price = random.randint( self.minprice, min(self.maxprice, money) )
+            except:
+                #If error is raised because minprice==money then just set price to the amount of money
+                price = money
+        
+        #Only goods: Choose random good from available goods and a random price
+        elif len(available_goods) > 0:
+            action = "ask"
+            good = random.choice(available_goods)
+            #Choose random price
+            price = random.randint( self.minprice, self.maxprice )
+        else:
+            print(f" {money}, {self.balance['X']}, {self.balance['Y']}")
+            raise ValueError("No money and no goods")
+        
+        order = Order(1, self.tid, action, good, price, quantity, time)
+        
+        return order
+
+
+
+#-------------------------- Other functions --------------------------------
+def create_csv(file_loc, dictionaries):
+    """Creates csv file from a list of dictionaries"""
+    #Get the keys of the dictionary as column names
+    keys = dictionaries[0].keys()
+    
+    #ADD CHECK TO SEE IF FILE ALREADY EXISTS ELSE CREATE A NEW ONE
+    
+    #Create file in results folder with write access 
+    file = open("results\\"+file_loc, "w")
+    
+    dict_writer = csv.DictWriter(file, keys)
+    dict_writer.writeheader()
+    dict_writer.writerows(dictionaries)
+    
+    #Close the file
+    file.close()
+
+def trader_type(tid, ttype, talgo):
+        """Function returns the correct trader object given the talgo value and trader type"""
+        
+        #Give starting balance given the trading type for the STABLE scarf economy
+        if ttype == 1:
+            balance = {"money":0,"X":10,"Y":0}
+        elif ttype == 2:
+            balance = {"money":0,"X":0,"Y":20}
+        elif ttype == 3:
+            balance = {"money":400,"X":0,"Y":0}
+        else:
+            raise ValueError(f"Trader type {ttype} is invalid, please choose 1,2 or 3.")
+        
+        #Select the correct trader algorithm
+        if talgo == 'ZI':
+            return Trader_ZI(tid, ttype, talgo, balance)
+        else:
+            raise ValueError(f"Trader of type {talgo} does not exist")
+        
+#-------------------------- END Other functions -----------------------------
+
+
+
+# #Market session
+
+endtime = 3000
+
+#History of all succesfull trades
+history = []
+
+exchange = Exchange()
+
+time = 1 
+
+traders = {}
+
+#Create 15 ZI traders
+trader_id = 1
+for i in range(5):
+    for j in [1,2,3]:
+        traders[trader_id] = trader_type(trader_id, j, "ZI") 
+        trader_id += 1 
+
+for i in tqdm(range(endtime)):
+    
+    #To add the factor of speed we can alter this bucket to have a trader in there more than once
+    #Depending on what speed score it has gotten
+    
+    #List of all trader ID's for selecting which one can act
+    trader_list = [i for i in range(1, len(traders)+1)]
+
+    while len(trader_list) != 0:
+        #Choose random trader to act        
+        tid = random.choice( trader_list )
+        #Remove that trader from the temporary list
+        trader_list.remove(tid)
+        
+        #Select that trader
+        trader = traders[tid]
+        
+        #Ask the trader to give an order
+        lob = exchange.publish_alob()
+        order = trader.get_order(time, lob)
+        
+        
+        #Process the order
+        trade = exchange.process_order(time, order, trader.balance)
+        
+    
+        #Check if trade has occurred
+        if trade is not None:
+            
+            #Check if they buy from themselves and ignore the order
+            if trade["seller_id"] == trade["buyer_id"]:
+                pass
+            else:
+                #Update the balance and utility of the parties involved after the trade 
+                #and save the current values of their balance and utility level after the trade
+                seller_balance, seller_util = traders[ trade["seller_id"] ].bookkeep(trade)
+                buyer_balance, buyer_util = traders[ trade["buyer_id"] ].bookkeep(trade)    
+                
+                #Add updated information to the trade
+                trade["seller_util"] = seller_util
+                trade["seller_balance"] = seller_balance
+                trade["buyer_util"] = buyer_util
+                trade["buyer_balance"] = buyer_balance
+                
+                #Append it to the history
+                history.append(trade)        
+    time += 1
+
+#create_csv("test.csv", history)
