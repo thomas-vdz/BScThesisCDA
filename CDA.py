@@ -127,7 +127,7 @@ class Exchange(Orderbook):
                     seller_id = order.tid
                     
                     #Check if counterparty still holds the money to complete the trade else delete their old offer
-                    if ( self.ob.lob[order.ptype]["bid"].price * order.quantity) <= traders[buyer_id].balance["money"]:
+                    if ( self.ob.lob[order.ptype]["bid"].price * self.ob.lob[order.ptype]["bid"].quantity) <= traders[buyer_id].balance["money"]:
                         
                         #Partial sell: update quantity
                         if order.quantity < self.ob.lob[order.ptype]["bid"].quantity:
