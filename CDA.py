@@ -54,10 +54,10 @@ class Orderbook:
             #Check for each pair if there is an order in the orderbook and anonymize it
             if self.lob[pair[0]].get(pair[1]) is not None:
                 order = self.lob[pair[0]].get(pair[1])                
-                self.alob[pair[0]][pair[1]] = [order.price, order.quantity]
+                self.alob[pair[0]][pair[1]] = (order.price, order.quantity)
             else:
                 #return empty order
-                self.alob[pair[0]][pair[1]] = []
+                self.alob[pair[0]][pair[1]] = (None , None)
                 
                 
     def add_order_lob(self, order):        
@@ -97,8 +97,8 @@ class Exchange(Orderbook):
             
     
     def __init__(self, traders):
-        self.minprice = 1  # minimum price in the system, in cents/pennies
-        self.maxprice = 200  # maximum price in the system, in cents/pennies
+        self.minprice = -1  # minimum price in the system, in cents/pennies
+        self.maxprice = 201  # maximum price in the system, in cents/pennies
         self.traders = traders
         self.ob = Orderbook() #Orderbook
         
@@ -164,7 +164,8 @@ class Exchange(Orderbook):
         
             else:
                 #Add functionality here to record traders posting infeasible bids
-                print("Not enough goods")
+                #print("Not enough goods")
+                pass
                 
         elif order.otype == "bid":
             #Check if they have enough money to post the bid
@@ -217,7 +218,8 @@ class Exchange(Orderbook):
                     self.ob.add_order_lob(order)
             else:
                 #Add functionality here to record traders posting infeasible bids
-                print("Not enough money")
+                #print("Not enough money")
+                pass
         else:
             raise ValueError("Offer was neither a bid nor an ask")
         
@@ -235,8 +237,8 @@ class Exchange(Orderbook):
 class Trader:
     
     def __init__(self, tid, ttype, talgo, balance):
-        self.minprice = 2  # minimum price in the system, in cents/pennies
-        self.maxprice = 199  # maximum price in the system, in cents/pennies
+        self.minprice = 1  # minimum price in the system, in cents/pennies
+        self.maxprice = 200  # maximum price in the system, in cents/pennies
         self.tid = tid #Integer: Unique identifier for each trader
         self.ttype = ttype #Integer: 1,2,3 specifies which utility function the trader has
         self.talgo = talgo #String: What kind of trader it is: ZIP,ZIC eGD etc
@@ -260,7 +262,24 @@ class Trader:
         else:
             raise ValueError("Invalid trader type. Traders must be of type 1, 2 or 3 INTEGER")
         
-    
+    def get_feasible_choices(self, orderbook):
+        """Returns a list of all feasible option a trader has given the restiction that it should always improve the orderbook  """
+        choices = [("do nothing"," ")] 
+        
+        if self.balance["X"] > 0:
+            choices.append( ("ask", "X") )
+        if self.balance["Y"] > 0: 
+            choices.append( ("ask", "Y") )
+        
+        #Check if we can improve best bid
+        if self.balance["money"] > int(orderbook["X"]["bid"][0] or 0):
+            choices.append( ("bid", "X") )
+            
+        if self.balance["money"] >  int(orderbook["Y"]["bid"][0] or 0):
+            choices.append( ("bid", "Y") )
+                   
+        return choices
+        
     
     def bookkeep(self, trade):
         """Updates the balance of the trader and adds the trade to the blotter """
@@ -300,7 +319,7 @@ class Trader:
         pass
     
     #This method will be overwritten by the different traders
-    def response(self, time, orderbook, trade):
+    def response(self, time, orderbook):
         """ Given the orderbook post an order """
         pass
      
@@ -365,6 +384,130 @@ class Trader_ZI(Trader):
         return order
 
 
+class Trader_ZIP(Trader):
+    """Modified version of the ZIP trader invented by Dave Cliff"""
+    
+    
+    def __init__(self, tid, ttype, talgo, balance):
+        Trader.__init__(self, tid, ttype, talgo, balance)
+        
+        self.last_price_bid = {"X":None, "Y": None}
+        self.last_price_ask = {"X":None, "Y": None}
+        self.gamma = 0.2 + 0.6 * random.random()  
+        self.cgamma_old = {"X":0, "Y": 0}
+        self.kappa = 0.1
+        self.shout_price = {"X": 100*random.random(), "Y":100*random.random()}
+        self.choice = None
+        self.buyer = True
+        self.active = True
+    
+    def get_order(self, time, lob):
+        
+        action = self.choice[0]
+        
+        if action == "do nothing":
+            return None
+        else:
+            good = self.choice[1]
+            price = round(self.shout_price[good])
+            quantity = 1
+            
+            order = Order(1, self.tid, action, good, price, quantity, time)
+            return order
+    
+    def choose_action(self, lob):
+        choices = self.get_feasible_choices(lob)
+        
+        #Select random action
+        action = random.choice(choices)        
+        self.choice = action
+        #Determine if buyer or seller this time pre 
+        if action[0] == "ask":
+            self.buyer = False
+            
+        elif action[0] == "bid":
+            self.buyer = True
+            
+    def respond(self, time, lob):
+        
+                                                               
+        def price_up(p_last, product):
+            delta = 0.05 * random.random()
+            lam = 0.05 * random.random()
+            R = 1 + lam
+            target = R*p_last + delta
+            diff =  self.kappa*(target - self.shout_price[product])
+            cgamma = self.gamma*self.cgamma_old[product] + (1 - self.gamma)*diff            
+            self.cgamma_old[product] = cgamma
+            self.shout_price[product] += cgamma
+        
+        def price_down(p_last, product):
+            delta = -0.05 * random.random()
+            lam = 0.05 * random.random()
+            R = 1 - lam
+            target = R*p_last + delta
+            diff =  self.kappa*(target - self.shout_price[product])
+            cgamma = self.gamma*self.cgamma_old[product] + (1 - self.gamma)*diff            
+            self.cgamma_old[product] = cgamma
+            self.shout_price[product] += cgamma
+        
+        
+        for product in ["X","Y"]:
+            best_bid = lob[product]["bid"][0]
+            best_ask = lob[product]["ask"][0]
+            
+            #Check if we have a previous price
+            if self.last_price_bid[product] != None:
+                
+                #If bid is now empty bid has been accepted
+                if best_bid == None:
+                    if self.buyer == True:
+                        if self.shout_price[product] >= self.last_price_bid[product]:
+                            price_down(self.last_price_bid[product], product)
+                    elif self.buyer == False:
+                        if (self.shout_price[product]  >= self.last_price_bid[product]) and self.active == True:
+                            price_down(self.last_price_bid[product]  , product)
+                        elif (self.shout_price[product] < self.last_price_bid[product]):
+                            price_up( self.last_price_bid[product] , product)
+                
+                #If best bid is not none then we check if it was rejected or not                
+                elif best_bid != None:
+                    
+                    if best_bid > self.last_price_bid[product]:
+                        #Bid rejected
+                        if self.buyer == True:
+                            if (self.shout_price[product]  <= self.last_price_bid[product]) and self.active == True:
+                                price_up( self.last_price_bid[product] , product)
+                        elif self.buyer == False:
+                            pass
+              
+            if self.last_price_ask[product] != None:
+                
+                if best_ask == None:
+                    if self.buyer == True:
+                        if (self.shout_price[product] <= self.last_price_ask[product]) and self.active == True:
+                            price_up(self.last_price_ask[product] , product)
+                        elif (self.shout_price[product] > self.last_price_ask[product]):
+                            price_down(self.last_price_ask[product] , product)                    
+                    elif self.buyer == False:
+                        if self.shout_price[product] <= self.last_price_ask[product]:
+                            price_up(self.last_price_ask[product] , product)
+                        
+                elif best_ask != None:
+                    if best_ask < self.last_price_ask[product]:
+                        #Ask rejected                        
+                        if self.buyer == True:
+                            pass
+                        elif self.buyer == False:
+                            if (self.shout_price[product]  >= self.last_price_ask[product]) and self.active == True:
+                                price_down(self.last_price_ask[product] , product)  
+                                
+            self.last_price_bid[product] = lob[product]["bid"][0]
+            self.last_price_ask[product] = lob[product]["ask"][0]
+    
+    
+    
+    
 
 #-------------------------- Other functions --------------------------------
 def create_csv(file_loc, dictionaries):
@@ -400,6 +543,8 @@ def trader_type(tid, ttype, talgo):
         #Select the correct trader algorithm
         if talgo == 'ZI':
             return Trader_ZI(tid, ttype, talgo, balance)
+        elif talgo == 'ZIP':
+            return Trader_ZIP(tid, ttype, talgo, balance)
         else:
             raise ValueError(f"Trader of type {talgo} does not exist")
         
@@ -426,7 +571,7 @@ traders = {}
 trader_id = 1
 for i in range(5):
     for j in [1,2,3]:
-        traders[trader_id] = trader_type(trader_id, j, "ZI") 
+        traders[trader_id] = trader_type(trader_id, j, "ZIP") 
         trader_id += 1 
 
 exchange = Exchange(traders)
@@ -435,8 +580,11 @@ exchange = Exchange(traders)
 
 for i in tqdm(range(endtime)):
     
+    lob = exchange.publish_alob()
     #To add the factor of speed we can alter this bucket to have a trader in there more than once
     #Depending on what speed score it has gotten
+    for i in range(1, len(traders)+1):
+        traders[i].choose_action(lob)
     
     #List of all trader ID's for selecting which one can act
     trader_list = [i for i in range(1, len(traders)+1)]
@@ -456,6 +604,8 @@ for i in tqdm(range(endtime)):
         
         #Ask the trader to give an order
         lob = exchange.publish_alob()
+        
+        
         order = trader.get_order(time, lob)
         
      
@@ -468,9 +618,13 @@ for i in tqdm(range(endtime)):
             #Add order to the list 
             orders.append(deepcopy(order))
             
+            
             #Process the order
             trade = exchange.process_order(time, order)
-        
+            
+            alob = exchange.publish_alob()
+            for i in range(1, len(traders)+1):
+                traders[i].respond(time, alob)
 
             #Check if trade has occurred
             if trade is not None:
