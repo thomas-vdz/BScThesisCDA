@@ -8,6 +8,11 @@ import csv
 import random
 from tqdm import tqdm
 from copy import deepcopy
+import os
+from datetime import datetime
+
+
+
 
 class Order:
     
@@ -77,8 +82,8 @@ class Orderbook:
                 if order.price < self.lob[order.ptype]["ask"].price:
                     self.lob[order.ptype][order.otype] = order
                 else:
-                    #ignore the order
-                    pass
+                    #If order did not improve orderbook then it does not count as a change so exchange should know this to avoid calling response
+                    return False
         #Update the anonymous lob
         self.anon_lob()
     
@@ -105,7 +110,7 @@ class Exchange(Orderbook):
     
     def process_order(self, time, order):        
         trade = None
-        
+        successful_order = True
         if order.otype == "ask":
             #Check if they have enough to post the offer
             if order.quantity <= traders[order.tid].balance[order.ptype]:
@@ -152,19 +157,18 @@ class Exchange(Orderbook):
                                  "ptype" : order.ptype
                                  }
                         
-                        return trade
                     else:
                         #Delete offer counterparty 
                         self.ob.del_order_lob(order.ptype, "bid")
                         #Add as regular offer
-                        self.ob.add_order_lob(order)
+                        successful_order = self.ob.add_order_lob(order)
                                                            
                 else:
-                    self.ob.add_order_lob(order)
+                    successful_order = self.ob.add_order_lob(order)
         
             else:
                 #Add functionality here to record traders posting infeasible bids
-                #print("Not enough goods")
+                successful_order = False
                 pass
                 
         elif order.otype == "bid":
@@ -207,22 +211,24 @@ class Exchange(Orderbook):
                                  "price" : price_sold,
                                  "quantity" : quant_sold,
                                  "ptype" : order.ptype
-                                 }
-                        return trade                                     
+                                 }                                     
                     else:
                         #Delete offer counterparty 
                         self.ob.del_order_lob(order.ptype, "ask")
                         #Add as regular offer
-                        self.ob.add_order_lob(order)
+                        successful_order = self.ob.add_order_lob(order)
                 else:
-                    self.ob.add_order_lob(order)
+                    successful_order = self.ob.add_order_lob(order)
             else:
                 #Add functionality here to record traders posting infeasible bids
                 #print("Not enough money")
+                successful_order = False
                 pass
         else:
             raise ValueError("Offer was neither a bid nor an ask")
         
+        return successful_order, trade
+    
     
     def publish_alob(self):
         """Updates the anonymous LOB"""
@@ -385,7 +391,11 @@ class Trader_ZI(Trader):
 
 
 class Trader_ZIP(Trader):
-    """Modified version of the ZIP trader invented by Dave Cliff"""
+    """
+    Modified version of the ZIP trader invented by Dave Cliff.
+    This algorithms still chooses a random choice out of feasible options but chooses its shout prices in a smart way.
+    
+    """
     
     
     def __init__(self, tid, ttype, talgo, balance):
@@ -395,7 +405,7 @@ class Trader_ZIP(Trader):
         self.last_price_ask = {"X":None, "Y": None}
         self.gamma = 0.2 + 0.6 * random.random()  
         self.cgamma_old = {"X":0, "Y": 0}
-        self.kappa = 0.1
+        self.kappa = 0.1 + 0.4 * random.random()
         self.shout_price = {"X": 100*random.random(), "Y":100*random.random()}
         self.choice = None
         self.buyer = True
@@ -457,68 +467,110 @@ class Trader_ZIP(Trader):
             best_ask = lob[product]["ask"][0]
             
             #Check if we have a previous price
-            if self.last_price_bid[product] != None:
+            if self.last_price_bid[product] != None:               
+                last_price = self.last_price_bid[product]
                 
                 #If bid is now empty bid has been accepted
                 if best_bid == None:
+                    #Bid has been crossed
                     if self.buyer == True:
-                        if self.shout_price[product] >= self.last_price_bid[product]:
-                            price_down(self.last_price_bid[product], product)
+                        if self.shout_price[product] >= last_price:
+                            price_down(last_price, product)
                     elif self.buyer == False:
-                        if (self.shout_price[product]  >= self.last_price_bid[product]) and self.active == True:
-                            price_down(self.last_price_bid[product]  , product)
-                        elif (self.shout_price[product] < self.last_price_bid[product]):
-                            price_up( self.last_price_bid[product] , product)
+                        if (self.shout_price[product]  >= last_price) and self.active == True:
+                            price_down(last_price  , product)
+                        elif (self.shout_price[product] < last_price):
+                            price_up( last_price , product)
                 
                 #If best bid is not none then we check if it was rejected or not                
                 elif best_bid != None:
                     
-                    if best_bid > self.last_price_bid[product]:
+                    if best_bid > last_price:
                         #Bid rejected
                         if self.buyer == True:
-                            if (self.shout_price[product]  <= self.last_price_bid[product]) and self.active == True:
-                                price_up( self.last_price_bid[product] , product)
+                            if (self.shout_price[product]  <= last_price) and self.active == True:
+                                price_up( last_price , product)
                         elif self.buyer == False:
                             pass
               
-            if self.last_price_ask[product] != None:
+            if self.last_price_ask[product] != None:                
+                last_price = self.last_price_ask[product]
                 
                 if best_ask == None:
+                    #Ask has been crossed
                     if self.buyer == True:
-                        if (self.shout_price[product] <= self.last_price_ask[product]) and self.active == True:
-                            price_up(self.last_price_ask[product] , product)
-                        elif (self.shout_price[product] > self.last_price_ask[product]):
-                            price_down(self.last_price_ask[product] , product)                    
+                        if (self.shout_price[product] <= last_price) and self.active == True:
+                            price_up(last_price , product)
+                        elif (self.shout_price[product] > last_price):
+                            price_down(last_price , product)                    
                     elif self.buyer == False:
-                        if self.shout_price[product] <= self.last_price_ask[product]:
-                            price_up(self.last_price_ask[product] , product)
+                        if self.shout_price[product] <= last_price:
+                            price_up(last_price , product)
                         
                 elif best_ask != None:
-                    if best_ask < self.last_price_ask[product]:
+                    if best_ask < last_price:
                         #Ask rejected                        
                         if self.buyer == True:
                             pass
                         elif self.buyer == False:
-                            if (self.shout_price[product]  >= self.last_price_ask[product]) and self.active == True:
-                                price_down(self.last_price_ask[product] , product)  
-                                
+                            if (self.shout_price[product]  >= last_price) and self.active == True:
+                                price_down(last_price , product)  
+            
+            #Set the last price to the new price
             self.last_price_bid[product] = lob[product]["bid"][0]
             self.last_price_ask[product] = lob[product]["ask"][0]
     
     
+class Trader_GD(Trader):
+    """
+    GD Trader
+    
+    """
+        
+    def __init__(self, tid, ttype, talgo, balance):
+        Trader.__init__(self, tid, ttype, talgo, balance)
+        
+        self.last_price_bid = {"X":None, "Y": None}
+        self.last_price_ask = {"X":None, "Y": None}
+        self.gamma = 0.2 + 0.6 * random.random()  
+        self.cgamma_old = {"X":0, "Y": 0}
+        self.kappa = 0.1 + 0.4 * random.random()
+        self.shout_price = {"X": 100*random.random(), "Y":100*random.random()}
+        self.choice = None
+        self.buyer = True
+        self.active = True    
     
     
+    def get_order(self, time, lob):
+        pass
+    
+    def respond(self, time, lob):
+        pass
+
 
 #-------------------------- Other functions --------------------------------
-def create_csv(file_loc, dictionaries):
+def create_csv(file_name, dictionaries):
     """Creates csv file from a list of dictionaries"""
     #Get the keys of the dictionary as column names
     keys = dictionaries[0].keys()
     
-    #ADD CHECK TO SEE IF FILE ALREADY EXISTS ELSE CREATE A NEW ONE
+    #Get date and time to save results
+    now = datetime.now()
+    dt_string = now.strftime(" %d-%m-%Y %H-%M-%S")
+    
+    #Get directory of file
+    script_dir = os.path.dirname(os.path.realpath('__file__'))
+    rel_path = "results"
+    abs_file_path = os.path.join(script_dir, rel_path)
+    
+    #Check if results folder exists else make it
+    if not os.path.exists(abs_file_path):
+        os.makedirs(abs_file_path)
+        
+    file_path = os.path.join(abs_file_path, file_name+dt_string+".csv")
     
     #Create csv file with write access 
-    file = open(file_loc, "w", newline='')
+    file = open(file_path, "w", newline='')
     
     dict_writer = csv.DictWriter(file, keys)
     dict_writer.writeheader()
@@ -554,7 +606,7 @@ def trader_type(tid, ttype, talgo):
 
 # #Market session
 
-endtime = 3000
+endtime = 500
 
 
 #History of all succesfull trades
@@ -588,7 +640,8 @@ for i in tqdm(range(endtime)):
     
     #List of all trader ID's for selecting which one can act
     trader_list = [i for i in range(1, len(traders)+1)]
-
+    
+    #Pick without replacement from trader list each timestep
     while len(trader_list) != 0:
         #Reset variables
         trade = None
@@ -620,11 +673,13 @@ for i in tqdm(range(endtime)):
             
             
             #Process the order
-            trade = exchange.process_order(time, order)
+            successful_order, trade = exchange.process_order(time, order)
             
-            alob = exchange.publish_alob()
-            for i in range(1, len(traders)+1):
-                traders[i].respond(time, alob)
+            #Check if the order improved/updated the lob and if so call respond function of all traders
+            if successful_order:
+                alob = exchange.publish_alob()
+                for i in range(1, len(traders)+1):
+                    traders[i].respond(time, alob)
 
             #Check if trade has occurred
             if trade is not None:
@@ -649,4 +704,4 @@ for i in tqdm(range(endtime)):
     time += 1
 
 
-create_csv("test.csv", history)
+create_csv("test", history)
