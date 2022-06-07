@@ -256,20 +256,32 @@ class Trader:
     def __str__(self):
         return f"Trader{self.tid}: Money:{self.balance['money']}, X:{self.balance['X']}, Y, {self.balance['Y']}"    
         
-    def calc_utility(self):
-        """Function returning the current utility level given the balance and trader type"""
-        
+    def calc_utility(self, new_balance=None):
+        """Function returning the current utility level given the balance and trader type.
+           If a new balance is given it calculates the utility of the new_balance else it calulates the agents current utility
+        """
+        if new_balance:
+            balance = new_balance
+        else:
+            balance = self.balance
+            
         if self.ttype == 1:
-            self.utility = min( self.balance["money"]/400, self.balance["Y"]/20)            
+            utility = min( balance["money"]/400, balance["Y"]/20)            
         elif self.ttype == 2:
-            self.utility = min( self.balance["money"]/400, self.balance["X"]/10)
+            utility = min( balance["money"]/400, balance["X"]/10)
         elif self.ttype == 3:
-            self.utility = min( self.balance["X"]/10, self.balance["Y"]/20)
+            utility = min( balance["X"]/10, balance["Y"]/20)
         else:
             raise ValueError("Invalid trader type. Traders must be of type 1, 2 or 3 INTEGER")
+            
+        if new_balance:
+            return utility
+        else:
+            self.utility = utility
+            return utility
         
     def get_feasible_choices(self, orderbook):
-        """Returns a list of all feasible option a trader has given the restiction that it should always improve the orderbook  """
+        """Returns a list of all feasible options a trader has given the restiction that it should always improve the orderbook  """
         choices = [("do nothing"," ")] 
         
         if self.balance["X"] > 0:
@@ -278,14 +290,27 @@ class Trader:
             choices.append( ("ask", "Y") )
         
         #Check if we can improve best bid
-        if self.balance["money"] > int(orderbook["X"]["bid"][0] or 0):
+        if self.balance["money"] > (orderbook["X"]["bid"][0] or 0):
             choices.append( ("bid", "X") )
             
-        if self.balance["money"] >  int(orderbook["Y"]["bid"][0] or 0):
-            choices.append( ("bid", "Y") )
-                   
+        if self.balance["money"] >  (orderbook["Y"]["bid"][0] or 0):
+            choices.append( ("bid", "Y") )                
+        
         return choices
         
+    def utility_gain_order(self, order):
+        """Function takes in an order and calculates the utility difference before and after assuming the order would result in an transaction"""
+        new_balance = deepcopy(self.balance)
+        
+        #Check what the new balance will be if the order leads to a transaction
+        if order.ptype == "ask":
+            new_balance["money"] += order.price * order.quantity
+            new_balance[order.ptype] -= order.quantity
+        elif order.ptype == "bid":
+            new_balance["money"] -= order.price * order.quantity
+            new_balance[order.ptype] += order.quantity
+            
+        return self.calc_utility(new_balance) - self.calc_utility()
     
     def bookkeep(self, trade):
         """Updates the balance of the trader and adds the trade to the blotter """
@@ -415,15 +440,30 @@ class Trader_ZIP(Trader):
         
         action = self.choice[0]
         
+        
+        #If no action dont return an order
         if action == "do nothing":
             return None
         else:
+            #Get good of the action and their calculated shout price
             good = self.choice[1]
             price = round(self.shout_price[good])
             quantity = 1
             
-            order = Order(1, self.tid, action, good, price, quantity, time)
-            return order
+            #Check if they can improve the order book with this shout price else order will get rejected
+            # (lob[good]["bid"][0] or 0) gives a 0 when there is no best bid and  (lob[good]["ask"][0] or 10000) gives a 10000 if there is no best ask
+            if (action == "bid" and (price > (lob[good]["bid"][0] or 0)) ) or (action == "ask" and (price < (lob[good]["ask"][0] or 10000))):
+                order = Order(1, self.tid, action, good, price, quantity, time)
+                
+                #Check if the order does not decrease utility else post nothing
+                if self.utility_gain_order(order) >= 0 :                    
+                    return order
+                else:
+                    #Order does not give extra utility
+                    return None
+            else:
+                #It cant post an offer at this shoutprice
+                return None
     
     def choose_action(self, lob):
         choices = self.get_feasible_choices(lob)
@@ -461,7 +501,7 @@ class Trader_ZIP(Trader):
             self.cgamma_old[product] = cgamma
             self.shout_price[product] += cgamma
         
-        
+        #Adjust shout price for both products
         for product in ["X","Y"]:
             best_bid = lob[product]["bid"][0]
             best_ask = lob[product]["ask"][0]
@@ -469,17 +509,18 @@ class Trader_ZIP(Trader):
             #Check if we have a previous price
             if self.last_price_bid[product] != None:               
                 last_price = self.last_price_bid[product]
+                shout_price = self.shout_price[product]
                 
                 #If bid is now empty bid has been accepted
                 if best_bid == None:
                     #Bid has been crossed
                     if self.buyer == True:
-                        if self.shout_price[product] >= last_price:
+                        if shout_price >= last_price:
                             price_down(last_price, product)
                     elif self.buyer == False:
-                        if (self.shout_price[product]  >= last_price) and self.active == True:
+                        if (shout_price  >= last_price) and self.active == True:
                             price_down(last_price  , product)
-                        elif (self.shout_price[product] < last_price):
+                        elif (shout_price < last_price):
                             price_up( last_price , product)
                 
                 #If best bid is not none then we check if it was rejected or not                
@@ -488,23 +529,24 @@ class Trader_ZIP(Trader):
                     if best_bid > last_price:
                         #Bid rejected
                         if self.buyer == True:
-                            if (self.shout_price[product]  <= last_price) and self.active == True:
+                            if (shout_price  <= last_price) and self.active == True:
                                 price_up( last_price , product)
                         elif self.buyer == False:
                             pass
               
             if self.last_price_ask[product] != None:                
                 last_price = self.last_price_ask[product]
+                shout_price = self.shout_price[product]
                 
                 if best_ask == None:
                     #Ask has been crossed
                     if self.buyer == True:
-                        if (self.shout_price[product] <= last_price) and self.active == True:
+                        if (shout_price <= last_price) and self.active == True:
                             price_up(last_price , product)
-                        elif (self.shout_price[product] > last_price):
+                        elif (shout_price > last_price):
                             price_down(last_price , product)                    
                     elif self.buyer == False:
-                        if self.shout_price[product] <= last_price:
+                        if shout_price <= last_price:
                             price_up(last_price , product)
                         
                 elif best_ask != None:
@@ -513,7 +555,7 @@ class Trader_ZIP(Trader):
                         if self.buyer == True:
                             pass
                         elif self.buyer == False:
-                            if (self.shout_price[product]  >= last_price) and self.active == True:
+                            if (shout_price  >= last_price) and self.active == True:
                                 price_down(last_price , product)  
             
             #Set the last price to the new price
@@ -606,7 +648,7 @@ def trader_type(tid, ttype, talgo):
 
 # #Market session
 
-endtime = 500
+endtime = 3000
 
 
 #History of all succesfull trades
