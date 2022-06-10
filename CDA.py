@@ -11,8 +11,9 @@ from copy import deepcopy
 import os
 from datetime import datetime
 from operator import itemgetter
-
-
+from scipy import interpolate
+import numpy as np
+import matplotlib.pyplot as plt
 
 class Order:
     
@@ -613,7 +614,7 @@ class Trader_GDA(Trader):
         
         
     
-    def get_order(self, time, lob):
+    def get_order(self, time, lob, verbose=False):
         
         choices = self.get_feasible_choices( lob, do_nothing=False )
         
@@ -646,9 +647,10 @@ class Trader_GDA(Trader):
         
         
         for choice in choices:
+            
             action = choice[0]
             good = choice[1]
-            best_bid = (lob[good]["bid"][0] or 1)
+            best_bid = (lob[good]["bid"][0] or 0)
             best_ask = (lob[good]["ask"][0] or 200)
             max_money = self.balance["money"]
 
@@ -684,18 +686,20 @@ class Trader_GDA(Trader):
                     utility_gain = self.utility_gain_order(order)
                     admissable_orders.append( (prob*utility_gain, best_bid, choice) )
             
-            try:
-                best = max(admissable_orders,key=itemgetter(0))
-                
-                action = best[2][0]
-                good = best[2][1]
-                price = best[1]
+        if verbose:
+            print(admissable_orders)
+        try:
+            best = max(admissable_orders,key=itemgetter(0))
             
-            
-                best_order  = Order(1, self.tid, action, good, price, 1, time)
-                return best_order
-            except:
-                return None
+            action = best[2][0]
+            good = best[2][1]
+            price = best[1]
+        
+        
+            best_order  = Order(1, self.tid, action, good, price, 1, time)
+            return best_order
+        except:
+            return None
             
 
     
@@ -736,7 +740,129 @@ class Trader_GDA(Trader):
         self.last_lob = deepcopy(lob)
         
         
+class Trader_eGD(Trader):
+    """
+    GD Trader
+    
+    """
         
+    def __init__(self, tid, ttype, talgo):
+        Trader.__init__(self, tid, ttype, talgo)
+        
+        self.last_lob = {
+            "X":{"bid":(None,None),"ask":(None,None)},
+            "Y":{"bid":(None,None),"ask":(None,None)},
+            }
+        self.history = {
+            "X":{"bid":[],"ask":[]},
+            "Y":{"bid":[],"ask":[]},
+            }
+        self.quantity_accepted = {
+            "X":{"bid":[],"ask":[]},
+            "Y":{"bid":[],"ask":[]},
+            }
+        self.quantity_rejected = {
+            "X":{"bid":[],"ask":[]},
+            "Y":{"bid":[],"ask":[]},
+            }
+        
+    def p_bid_accept(self, good, price):
+        q_bid_acc = sum( [ q[1] for q in self.quantity_accepted[good]["bid"] if q[0] <= price ] )
+        q_ask = sum( [ q[1] for q in self.history[good]["bid"] if q[0] <= price ] )
+        q_bid_rej = sum( [ q[1] for q in self.quantity_rejected[good]["bid"]  if q[0] >= price ] )
+        
+        try:
+            prob = (q_bid_acc + q_ask ) / (q_bid_acc + q_ask + q_bid_rej)
+            return prob
+        except:
+            return 0
+    
+    def p_ask_accept(self, good, price):
+        q_ask_acc = sum( [ q[1] for q in self.quantity_accepted[good]["ask"] if q[0] >= price ] )
+        q_bid = sum( [ q[1] for q in self.history[good]["ask"] if q[0] >= price ] )
+        q_ask_rej = sum( [ q[1] for q in self.quantity_accepted[good]["ask"] if q[0] <= price ] )
+        
+        try:
+            prob = (q_ask_acc + q_bid ) / (q_ask_acc + q_bid + q_ask_rej)
+            return prob
+        except:
+            return 0  
+    
+    def equilibrium_price(self, good, lob):
+        best_bid = (lob[good]["bid"][0] or 0)
+        best_ask = (lob[good]["ask"][0] or 200)
+        
+        ya = []
+        for i in range(0, 201):
+            
+            if i < best_ask:
+                ya.append(self.p_ask_accept(good, i ))
+            else:
+                ya.append(0)
+                
+        yb = []
+        for i in range(0, 201):
+            
+            if i > best_bid:
+                yb.append(self.p_bid_accept(good, i ))
+            else:
+                yb.append(0)
+        
+        
+            
+        
+        ya = np.array(ya)
+        yb = np.array(yb)
+
+        absdiff = abs(ya -yb)
+        
+        eq_price = np.random.choice(np.where(absdiff == np.amin(absdiff))[0] )
+        
+        return eq_price
+    
+    def respond(self, time, lob):
+        
+        for pair in [("X","bid"),("X","ask"),("Y","bid"),("Y","ask")]:
+            
+            good = pair[0]
+            action = pair[1]
+            
+            floor = lob[good][action]          
+            prev =  self.last_lob[good][action]
+            
+            #Only add change if orderbook has changed
+            if floor != prev:
+                #check if there is an order
+                if floor[0] != None:
+    
+                    #Check the new order book and add the transactions to the correct lists
+                    self.history[good][action].append( floor )
+                    
+                    #Check if there was a previous order
+                    if prev[0] != None:
+                        #Check if the floor was impoved if so the previous one was rejected
+                        if pair[1] == "bid":
+                            if prev[0] < floor[0]:
+                                self.quantity_rejected[good][action].append(prev)
+                                
+                        elif pair[1] == "ask":
+                            if prev[0] > floor[0]:
+                                self.quantity_rejected[good][action].append(prev)
+                else:
+                    #Check if there was a previous floor if so then it was accepted                
+                    if prev[0] != None:
+                        self.quantity_accepted[good][action].append(prev)
+        
+        #Save new order book as previous
+        self.last_lob = deepcopy(lob)
+        
+        eq_price = self.equilibrium_price("X", lob)
+        print(eq_price)
+        
+        
+            
+        
+              
 
         
 
@@ -781,6 +907,8 @@ def trader_type(tid, ttype, talgo):
             return Trader_ZIP(tid, ttype, talgo)
         elif talgo == 'GDA':
             return Trader_GDA(tid, ttype, talgo)
+        elif talgo == 'eGD':
+            return Trader_eGD(tid, ttype, talgo)
         else:
             raise ValueError(f"Trader of type {talgo} does not exist")
         
@@ -790,7 +918,7 @@ def trader_type(tid, ttype, talgo):
 
 # #Market session
 
-endtime = 1000
+endtime = 500
 
 
 #History of all succesfull trades
@@ -812,9 +940,8 @@ for i in range(3):
         traders[trader_id] = trader_type(trader_id, j, "ZIP") 
         trader_id += 1 
 
-traders[10] = trader_type(10, 1, "GDA") 
-traders[11] = trader_type(11, 2, "GDA") 
-traders[12] = trader_type(12, 3, "GDA") 
+traders[10] = trader_type(10, 1, "eGD") 
+
 
 exchange = Exchange(traders)
 
