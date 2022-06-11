@@ -749,6 +749,8 @@ class Trader_eGD(Trader):
     def __init__(self, tid, ttype, talgo):
         Trader.__init__(self, tid, ttype, talgo)
         
+        self.markup = 0 #0.01 + 0.01 * random.random()
+        
         self.last_lob = {
             "X":{"bid":(None,None),"ask":(None,None)},
             "Y":{"bid":(None,None),"ask":(None,None)},
@@ -808,8 +810,7 @@ class Trader_eGD(Trader):
             else:
                 yb.append(0)
         
-        
-            
+   
         
         ya = np.array(ya)
         yb = np.array(yb)
@@ -819,6 +820,42 @@ class Trader_eGD(Trader):
         eq_price = np.random.choice(np.where(absdiff == np.amin(absdiff))[0] )
         
         return eq_price
+    
+    
+    def get_order(self, time, lob):
+        
+        quantity = 1 
+        choices = self.get_feasible_choices(lob, False)
+        possible_orders = []
+        
+        for choice in choices:
+            
+            action = choice[0]
+            good = choice[1]
+            price = self.equilibrium_price( good, lob )
+            
+            floor = lob[good][action]
+            
+            if action == "bid":
+                shout_price = round(price*(1-self.markup))
+                if shout_price == floor:
+                    shout_price += 1 
+            elif action == "ask":
+                shout_price = round(price*(1+self.markup))
+                if shout_price == floor:
+                    shout_price -= 1
+                    
+            
+            order = Order(1, self.tid, action, good, shout_price, quantity, time)
+            
+            possible_orders.append( (self.utility_gain_order(order) , order ) )
+            
+        best = max(possible_orders,key=itemgetter(0))
+        
+        if best[0] >= 0:
+            return best[1]
+        else:
+            return None
     
     def respond(self, time, lob):
         
@@ -857,7 +894,6 @@ class Trader_eGD(Trader):
         self.last_lob = deepcopy(lob)
         
         eq_price = self.equilibrium_price("X", lob)
-        print(eq_price)
         
         
             
@@ -937,10 +973,12 @@ traders = {}
 trader_id = 1
 for i in range(3):
     for j in [1,2,3]:
-        traders[trader_id] = trader_type(trader_id, j, "ZIP") 
+        traders[trader_id] = trader_type(trader_id, j, "eGD") 
         trader_id += 1 
 
-traders[10] = trader_type(10, 1, "eGD") 
+traders[10] = trader_type(10, 1, "eGD")
+traders[11] = trader_type(11, 2, "eGD") 
+traders[12] = trader_type(12, 3, "eGD") 
 
 
 exchange = Exchange(traders)
@@ -986,6 +1024,7 @@ for i in tqdm(range(endtime)):
      
         #Check if trader gave an order
         if order:
+            orders.append(order)
             #Give order unique id and increment
             order.oid = order_id
             order_id += 1
