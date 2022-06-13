@@ -6,7 +6,7 @@ Created on Tue May  3 10:22:34 2022
 """
 import csv
 import random
-from tqdm import tqdm
+from tqdm import tqdm, trange
 from copy import deepcopy
 import os
 from datetime import datetime
@@ -29,21 +29,58 @@ def timer_func(func):
 
 
 class Order:
+    """
+    Order object
 
+    ...
+
+    Attributes
+    ----------
+    oid : int
+        Unique identifier for each order.
+    tid : int 
+        Trader ID for trader who posted the order.
+    otype : str {"ask", "bid"}
+        Order type indicating if its a bid or an ask. 
+    ptype : str {"X", "Y"}
+        Product type of the order.
+    price : int 
+        Price per unit of the order.
+    quantity : int
+        Quantity of the good.
+    time : int
+        Number indicating in which timestep the order was posted.
+
+
+    """
     def __init__(self, oid, tid, otype, ptype, price, quantity, time):
-        #Order ID: Integer, Unique id for each order
+        """
+        Constructs all the necessary attributes for the order object.
+
+        Parameters
+        ----------
+        oid : int
+            Unique identifier for each order.
+        tid : int 
+            Trader ID for trader who posted the order.
+        otype : str {"ask", "bid"}
+            Order type indicating if its a bid or an ask. 
+        ptype : str {"X", "Y"}
+            Product type of the order.
+        price : int 
+            Price per unit of the order.
+        quantity : int
+            Quantity of the good.
+        time : int
+            Number indicating in which timestep the order was posted.
+        """
+        
         self.oid = oid
-        #Trader ID: Integer, ID of the trader who posted the order
         self.tid = tid
-        #Order Type: String, bid or ask
         self.otype = otype
-        #Product Type: String, either product X or product Y 
         self.ptype = ptype
-        #Price: Integer, price of the good
         self.price = price
-        #Quantity: Integer, quantity of the good
         self.quantity = quantity
-        #Time: Integer at which tick of the system the order has been submitted
         self.time = time
         
     def __str__(self):
@@ -263,6 +300,7 @@ class Trader:
         self.balance = {}  #Dictionary containing the balance of the trader
         self.blotter = [] #List of executed trades
         self.utility = 0 #Utility level of the trader
+        self.active = False
         self.reset_allocation()
         
     def __str__(self):
@@ -279,6 +317,7 @@ class Trader:
         else:
             raise ValueError(f"Trader type {self.ttype} is invalid, please choose 1,2 or 3.")
         self.balance = balance
+        self.active = True
         
             
     def calc_utility(self, balance):
@@ -376,8 +415,6 @@ class Trader:
         """ Given the orderbook post an order """
         pass
      
-
-
 
 class Trader_ZI(Trader):
     """Trader with no intelligence restricted to posting offers it can complete"""
@@ -741,7 +778,7 @@ class Trader_GDA(Trader):
         
 class Trader_eGD(Trader):
     """
-    GD Trader
+    eGD Trader
     
     """
     history = {
@@ -757,7 +794,6 @@ class Trader_eGD(Trader):
     
     def __init__(self, tid, ttype, talgo):
         Trader.__init__(self, tid, ttype, talgo)
-        self.active = True
         self.markup = 0 #0.01 + 0.01 * random.random()
 
         
@@ -817,9 +853,17 @@ class Trader_eGD(Trader):
                 yb.append(self.p_bid_accept(good, i ))
             else:
                 yb.append(0)
+        
+        
+        
         ya = np.array(ya)
+        if not np.all(np.diff(ya) <= 0):
+            print(ya)
+            
         yb = np.array(yb)
-
+        
+        
+        
         absdiff = abs(ya -yb)
         
         eq_price = np.random.choice(np.where(absdiff == np.amin(absdiff))[0] )
@@ -875,9 +919,7 @@ class Trader_eGD(Trader):
             if best[0] >= 0:
                 return best[1]
             elif best[0] < 0:
-                print(best[1])
                 self.active = False
-                #raise Exception("WAT DE KANKER GAAT HIER MIS")
                 return None
             
         else:
@@ -1012,12 +1054,17 @@ def trader_type(tid, ttype, talgo):
 # #Market session
 
 endtime = 300
+periods = 2
+runs = 1000
+
 
 
 #History of all succesfull trades
 trade_history = []
 orders = []
 lobs = []
+
+
 
 
 time = 1 
@@ -1042,89 +1089,94 @@ for i in range(3):
 exchange = Exchange(traders)
 
 
-
-for i in tqdm(range(endtime)):
-    
-    lob = exchange.publish_alob()
-    
+for j in tqdm(range(periods), desc="Episode"):
+    #Reset allocation for all traders
     for i in range(1, len(traders)+1):
-        try:
-            traders[i].choose_action(lob)
-        except:
-            pass
+        traders[i].reset_allocation()
+
     
-    #To add the factor of speed we can alter this bucket to have a trader in there more than once
-    #Depending on what speed score it has gotten
-    
-    #List of all trader ID's for selecting which one can act
-    trader_list = [i for i in range(1, len(traders)+1)]
-    
-    #Pick without replacement from trader list each timestep
-    while len(trader_list) != 0:
-        #Reset variables
-        trade = None
-        order = None
+    for i in trange((endtime), desc="Timesteps", mininterval=1):
         
-        #Choose random trader to act        
-        tid = random.choice( trader_list )
-        #Remove that trader from the temporary list
-        trader_list.remove(tid)
-        
-        #Select that trader
-        trader = traders[tid]
-        
-        #Ask the trader to give an order
         lob = exchange.publish_alob()
         
+        for i in range(1, len(traders)+1):
+            try:
+                traders[i].choose_action(lob)
+            except:
+                pass
         
-        order = trader.get_order(time, lob)
+        #To add the factor of speed we can alter this bucket to have a trader in there more than once
+        #Depending on what speed score it has gotten
         
-     
-        #Check if trader gave an order
-        if order:
-            orders.append(order)
-            #Give order unique id and increment
-            order.oid = order_id
-            order_id += 1
+        #List of all trader ID's for selecting which one can act
+        trader_list = [i for i in range(1, len(traders)+1)]
+        
+        #Pick without replacement from trader list each timestep
+        while len(trader_list) != 0:
+            #Reset variables
+            trade = None
+            order = None
             
-            #Process the order
-            successful_order, trade = exchange.process_order(time, order)
+            #Choose random trader to act        
+            tid = random.choice( trader_list )
+            #Remove that trader from the temporary list
+            trader_list.remove(tid)
             
-            #Check if the order improved/updated the lob and if so call respond function of all traders
-            if successful_order:
-                Trader_eGD.new_turn = True
-                alob = exchange.publish_alob()
-                #Add order to the list 
-                lobs.append(deepcopy(alob))
-                for i in range(1, len(traders)+1):
-                    traders[i].respond(time, alob, order)
-
-            #Check if trade has occurred
-            if trade is not None:
-                #Update the balance and utility of the parties involved after the trade 
-                #and save the current values of their balance and utility level after the trade
-                seller_balance, seller_util = traders[ trade["seller_id"] ].bookkeep(trade)
-                buyer_balance, buyer_util = traders[ trade["buyer_id"] ].bookkeep(trade)    
+            #Select that trader
+            trader = traders[tid]
+            
+            #Ask the trader to give an order
+            lob = exchange.publish_alob()
+            
+            
+            order = trader.get_order(time, lob)
+            
+         
+            #Check if trader gave an order
+            if order:
+                orders.append(order)
+                #Give order unique id and increment
+                order.oid = order_id
+                order_id += 1
                 
-                buyer_id = trade["buyer_id"]
-                seller_id = trade["seller_id"]
-            
-                #Add updated information to the trade
-                trade["buyer_algo"] = traders[buyer_id].talgo
-                trade["buyer_util"] = buyer_util
-                trade["buyer_balance"] = buyer_balance
-                trade["seller_algo"] = traders[seller_id].talgo
-                trade["seller_util"] = seller_util
-                trade["seller_balance"] = seller_balance
-
+                #Process the order
+                successful_order, trade = exchange.process_order(time, order)
+                
+                #Check if the order improved/updated the lob and if so call respond function of all traders
+                if successful_order:
+                    Trader_eGD.new_turn = True
+                    alob = exchange.publish_alob()
+                    #Add order to the list 
+                    lobs.append(deepcopy(alob))
+                    for i in range(1, len(traders)+1):
+                        traders[i].respond(time, alob, order)
     
-                #Append it to the history using deepcopy 
-                trade_history.append(deepcopy(trade))   
-                if (seller_balance["money"] < 0 or buyer_balance["money"] < 0):
-                    raise ValueError("money negative")
-        else:
-            pass
-    time += 1
+                #Check if trade has occurred
+                if trade is not None:
+                    #Update the balance and utility of the parties involved after the trade 
+                    #and save the current values of their balance and utility level after the trade
+                    seller_balance, seller_util = traders[ trade["seller_id"] ].bookkeep(trade)
+                    buyer_balance, buyer_util = traders[ trade["buyer_id"] ].bookkeep(trade)    
+                    
+                    buyer_id = trade["buyer_id"]
+                    seller_id = trade["seller_id"]
+                
+                    #Add updated information to the trade
+                    trade["buyer_algo"] = traders[buyer_id].talgo
+                    trade["buyer_util"] = buyer_util
+                    trade["buyer_balance"] = buyer_balance
+                    trade["seller_algo"] = traders[seller_id].talgo
+                    trade["seller_util"] = seller_util
+                    trade["seller_balance"] = seller_balance
+    
+        
+                    #Append it to the history using deepcopy 
+                    trade_history.append(deepcopy(trade))   
+                    if (seller_balance["money"] < 0 or buyer_balance["money"] < 0):
+                        raise ValueError("money negative")
+            else:
+                pass
+        time += 1
 
 
 create_csv("test", trade_history)
