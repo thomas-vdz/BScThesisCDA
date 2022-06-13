@@ -23,13 +23,13 @@ def timer_func(func):
         t1 = t()
         result = func(*args, **kwargs)
         t2 = t()
-        print(f'Function {func.__name__!r} executed in {(t2-t1):.7f}s')
+        print(f"Function {func.__name__!r} executed in {(t2-t1):.7f}s")
         return result
     return wrap_func
 
 
 class Order:
-    
+
     def __init__(self, oid, tid, otype, ptype, price, quantity, time):
         #Order ID: Integer, Unique id for each order
         self.oid = oid
@@ -50,7 +50,6 @@ class Order:
         return f"Order{self.oid}: trader{self.tid} posted a {self.otype} {self.price} per unit for {self.quantity} of good {self.ptype} at t={self.time}"
 
 
-
 class Orderbook:
 
     def __init__(self):
@@ -63,8 +62,7 @@ class Orderbook:
             "X":{"bid":{},"ask":{}},
             "Y":{"bid":{},"ask":{}},
             }
-
-    
+   
     def anon_lob(self):
         #Test if there is a best-ask/bid present and report it in the anon_lob else return a empty list
         #For loop to avoid writing the same line 4 times
@@ -77,8 +75,7 @@ class Orderbook:
             else:
                 #return empty order
                 self.alob[pair[0]][pair[1]] = (None , None)
-                
-                
+                                
     def add_order_lob(self, order):        
         #Check if orderbook is empty
         if self.lob[order.ptype].get(order.otype) is None:
@@ -101,7 +98,6 @@ class Orderbook:
                 else:
                     #If order did not improve orderbook then it does not count as a change so exchange should know this to avoid calling response
                     return False
-
     
     def del_order_lob(self, ptype, otype):
         
@@ -110,10 +106,6 @@ class Orderbook:
         self.anon_lob()        
     
     
-    
-    
-    
-
 class Exchange(Orderbook):
             
     
@@ -141,7 +133,6 @@ class Exchange(Orderbook):
                 
                 #Check if the bid crosses the ask
                 if order.price <= floorprice:
-                    
 
                     #Get ID of counterparty                                       
                     buyer_id = self.ob.lob[order.ptype]["bid"].tid 
@@ -155,8 +146,7 @@ class Exchange(Orderbook):
                             self.ob.lob[order.ptype]["bid"].quantity -= order.quantity                        
                             quant_sold = order.quantity
                             price_sold = self.ob.lob[order.ptype]["bid"].price
-                            
-                        
+                                              
                         #Full sell: remove order
                         else:                        
                             
@@ -548,50 +538,50 @@ class Trader_ZIP(Trader):
                 shout_price = self.shout_price[product]
                 
                 #If bid is now empty bid has been accepted
-                if best_bid == None:
+                if best_bid is None:
                     #Bid has been crossed
-                    if self.buyer == True:
+                    if self.buyer is True:
                         if shout_price >= last_price:
                             price_down(last_price, product)
-                    elif self.buyer == False:
-                        if (shout_price  >= last_price) and self.active == True:
+                    elif self.buyer is False:
+                        if (shout_price  >= last_price) and self.active is True:
                             price_down(last_price  , product)
                         elif (shout_price < last_price):
                             price_up( last_price , product)
                 
                 #If best bid is not none then we check if it was rejected or not                
-                elif best_bid != None:
+                elif best_bid is not None:
                     
                     if best_bid > last_price:
                         #Bid rejected
-                        if self.buyer == True:
-                            if (shout_price  <= last_price) and self.active == True:
+                        if self.buyer is True:
+                            if (shout_price  <= last_price) and self.active is True:
                                 price_up( last_price , product)
-                        elif self.buyer == False:
+                        elif self.buyer is False:
                             pass
               
-            if self.last_price_ask[product] != None:                
+            if self.last_price_ask[product] is not None:                
                 last_price = self.last_price_ask[product]
                 shout_price = self.shout_price[product]
                 
-                if best_ask == None:
+                if best_ask is None:
                     #Ask has been crossed
-                    if self.buyer == True:
-                        if (shout_price <= last_price) and self.active == True:
+                    if self.buyer is True:
+                        if (shout_price <= last_price) and self.active is True:
                             price_up(last_price , product)
                         elif (shout_price > last_price):
                             price_down(last_price , product)                    
-                    elif self.buyer == False:
+                    elif self.buyer is False:
                         if shout_price <= last_price:
                             price_up(last_price , product)
                         
-                elif best_ask != None:
+                elif best_ask is not None:
                     if best_ask < last_price:
                         #Ask rejected                        
-                        if self.buyer == True:
+                        if self.buyer is True:
                             pass
-                        elif self.buyer == False:
-                            if (shout_price  >= last_price) and self.active == True:
+                        elif self.buyer is False:
+                            if (shout_price  >= last_price) and self.active is True:
                                 price_down(last_price , product)  
             
             #Set the last price to the new price
@@ -625,8 +615,7 @@ class Trader_GDA(Trader):
             "Y":{"bid":[],"ask":[]},
             }
         
-        
-    
+
     def get_order(self, time, lob, verbose=False):
         
         choices = self.get_feasible_choices( lob, do_nothing=False )
@@ -654,11 +643,9 @@ class Trader_GDA(Trader):
             except:
                 return 0
         
-        
-        
+     
         admissable_orders = []
-        
-        
+                
         for choice in choices:
             
             action = choice[0]
@@ -715,7 +702,6 @@ class Trader_GDA(Trader):
             return None
             
 
-    
     def respond(self, time, lob):
         
         for pair in [("X","bid"),("X","ask"),("Y","bid"),("Y","ask")]:
@@ -768,6 +754,7 @@ class Trader_eGD(Trader):
             }
     
     new_turn = False
+    
     def __init__(self, tid, ttype, talgo):
         Trader.__init__(self, tid, ttype, talgo)
         self.active = True
@@ -776,6 +763,8 @@ class Trader_eGD(Trader):
         
         
     def p_bid_accept(self, good, price):
+        """ Estimates the probability a bid will be accepted given previous observations"""
+        
         q_bid_acc = sum( [ q[1] for q in Trader_eGD.history[good]["bid"] if (q[0] <= price  and q[2] == True ) ] )
         q_ask = sum( [ q[1] for q in Trader_eGD.history[good]["ask"] if q[0] <= price ] )
         
@@ -789,6 +778,8 @@ class Trader_eGD(Trader):
             return 0
     
     def p_ask_accept(self, good, price):
+        """ Estimates the probability an ask will be accepted given previous observations"""
+        
         q_ask_acc = sum( [ q[1] for q in Trader_eGD.history[good]["ask"] if (q[0] >= price  and q[2] == True ) ] )
         q_bid = sum( [ q[1] for q in Trader_eGD.history[good]["bid"] if q[0] >= price ] )
         
@@ -803,6 +794,11 @@ class Trader_eGD(Trader):
         
     
     def equilibrium_price(self, good, lob):
+        """
+            Estimating an equilibrium price by calculating where the probability of a bid acceptance is equal to an ask acceptance
+            This is done by calculating a vector of bida/ask probilities for different prices and checking where the absolute difference is minimal.
+        """
+        
         best_bid = (lob[good]["bid"][0] or 0)
         best_ask = (lob[good]["ask"][0] or 200)
         
@@ -833,7 +829,7 @@ class Trader_eGD(Trader):
     
     def get_order(self, time, lob):
         
-        if self.active:
+        if self.active is True:
             quantity = 1 
             choices = self.get_feasible_choices(lob, False)
             possible_orders = []
@@ -867,7 +863,7 @@ class Trader_eGD(Trader):
                         shout_price = None
                     
                         
-                if shout_price != None:
+                if shout_price is not None:
                     order = Order(1, self.tid, action, good, shout_price, quantity, time)            
                     possible_orders.append( (self.utility_gain_order(order) , order ) )
             
@@ -886,7 +882,8 @@ class Trader_eGD(Trader):
             
         else:
             return None
-    def respond1(self, time, lob):
+        
+    def respond_old(self, time, lob):
         
         for pair in [("X","bid"),("X","ask"),("Y","bid"),("Y","ask")]:
             
@@ -960,12 +957,7 @@ class Trader_eGD(Trader):
             pass
         
         
-        
-            
-        
-              
-
-        
+  
 
 #-------------------------- Other functions --------------------------------
 def create_csv(file_name, dictionaries):
