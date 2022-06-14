@@ -341,7 +341,47 @@ class Trader:
             
         return utility
 
+    def excess(self):
+        """Returns the excess allocation it has given the balance"""
+        excess = {"money":0,"X":0,"Y":0}
         
+        if self.ttype == 1:
+            excess["X"] += self.balance["X"]
+            util_m = self.balance["money"]/400
+            util_y = self.balance["Y"]/20
+            
+            if util_m > util_y:
+                e = (self.balance["money"] - util_y*400)
+                excess["money"] += e
+            elif util_m < util_y:
+                e = (self.balance["Y"] - util_m*20)
+                excess["Y"] += e
+                
+        elif self.ttype == 2:
+            excess["Y"] += self.balance["Y"]
+            util_m = self.balance["money"]/400
+            util_x = self.balance["X"]/10
+            
+            if util_m > util_x:
+                e = (self.balance["money"] - util_x*400)
+                excess["money"] += e
+            elif util_m < util_x:
+                e = (self.balance["X"] - util_m*10)
+                excess["X"] += e
+                
+        elif self.ttype == 3:
+            excess["money"] += self.balance["money"]
+            util_x = self.balance["X"]/10
+            util_y = self.balance["Y"]/20
+            
+            if util_x > util_y:
+                e = (self.balance["X"] - util_y*10)
+                excess["X"] += e
+            elif util_x < util_y:
+                e = (self.balance["Y"] - util_x*20)
+                excess["Y"] += e   
+        return excess
+    
     def get_feasible_choices(self, orderbook, do_nothing=True):
         """Returns a list of all feasible options a trader has given the restiction that it should always improve the orderbook  """
         
@@ -1292,6 +1332,27 @@ def trader_type(tid, ttype, talgo):
             return Trader_GDZ(tid, ttype, talgo)
         else:
             raise ValueError(f"Trader of type {talgo} does not exist")
+
+def generate_traders(spec):
+    """Gives traders based on a list of tuples containing tradertype and how many multiples of 3 traders per type """
+    
+    traders = {}
+    trader_pairs = []
+    trader_id = 1 
+    
+    for s in spec:
+        for i in range(s[1]):
+            for j in [1,2,3]:
+                # Add (traderid, tradertype, traderalgo) to traderpairs
+                pair = (trader_id, j, s[0] )
+                trader_pairs.append( pair )
+                traders[trader_id] = trader_type( *pair )
+                trader_id += 1
+    return trader_pairs, traders
+
+def online_average(old_avg, new_observation, n):
+    """Calculates the new average when a new observation is added"""
+    return old_avg*((n-1)/n) + new_observation/n
         
 #-------------------------- END Other functions -----------------------------
 
@@ -1300,48 +1361,53 @@ def trader_type(tid, ttype, talgo):
 # #Market session
 
 endtime = 300
-periods = 1
+periods = 3
 runs = 1000
 
 
+utility_levels = []
 
+
+
+#---- Market Session ----
 #History of all succesfull trades
-trade_history = []
 orders = []
 lobs = []
+trade_history = []
 
 
 
-
-time = 1 
 order_id = 1
 
-#Dictionary of traders indexed by unique trader id
-traders = {}
-
-#Create 15 ZI traders
-trader_id = 1
-for i in range(3):
-    for j in [1,2,3]:
-        traders[trader_id] = trader_type(trader_id, j, "GDZ") 
-        trader_id += 1 
-
-for i in range(3):
-    for j in [1,2,3]:
-        traders[trader_id] = trader_type(trader_id, j, "eGD") 
-        trader_id += 1 
 
 
+spec = [("ZI", 3), ("ZIP", 3)]
+trader_pairs, traders = generate_traders(spec)        
 exchange = Exchange(traders)
 
 
-for j in tqdm(range(periods), desc="Episode"):
+for period in tqdm(range(1, periods+1), desc="Periods"):
+    
     #Reset allocation for all traders
     for i in range(1, len(traders)+1):
         traders[i].reset_allocation()
 
     
-    for i in trange((endtime), desc="Timesteps", mininterval=1):
+    for time in tqdm(range(1, endtime+1), desc="Timesteps", mininterval=1):
+        
+        #Calculate the average utility per Tradertype and Algorithm pair
+        for s in spec:
+            algo = s[0]
+            for j in [1,2,3]:
+                util = [traders[pair[0]].utility for pair in trader_pairs if (pair[1] == j and pair[2] == algo) ]
+                avg = sum(util)/len(util)
+                utility_levels.append( {"avg_util": avg,
+                                       "talgo": algo,
+                                       "ttype": j,
+                                       "time": time,
+                                       "period": period} )
+            
+            
         
         lob = exchange.publish_alob()
         
@@ -1426,18 +1492,7 @@ for j in tqdm(range(periods), desc="Episode"):
                         raise ValueError("money negative")
             else:
                 pass
-        time += 1
 
 
-
-for i in range(1,len(traders)+1):
-    if traders[i].active == True:
-        print(f"trader {i} still active")
-
-oa = [order for order in orders if order.accepted == True]
-orej = [order for order in orders if order.accepted == False]
-
-for o in oa[-10:]:
-    print(o)
-
+create_csv("util", utility_levels)
 create_csv("test", trade_history)
