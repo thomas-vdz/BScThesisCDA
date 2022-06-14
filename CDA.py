@@ -295,7 +295,7 @@ class Exchange(Orderbook):
 #Main trader class
 class Trader:
     
-    new_turn = False
+
     def __init__(self, tid, ttype, talgo):
         self.minprice = 1  # minimum price in the system, in cents/pennies
         self.maxprice = 200  # maximum price in the system, in cents/pennies
@@ -994,7 +994,7 @@ class Trader_eGD(Trader):
             and on the assumption that all trades have a quantity of 1 
         """
         
-        if Trader.new_turn:
+        if Trader_eGD.new_turn:
 
             good = order.ptype            
             action = order.otype
@@ -1021,7 +1021,7 @@ class Trader_eGD(Trader):
              
             #Save new order book as previous
             self.last_lob = deepcopy(lob)
-            Trader.new_turn = False
+            Trader_eGD.new_turn = False
             
             #Save new equilibrium price
             Trader_eGD.e_price[good]  = self.equilibrium_price(good, lob)
@@ -1048,7 +1048,7 @@ class Trader_GDZ(Trader):
             "Y":{"bid":(None,None),"ask":(None,None)},
             }
     
-    
+    new_turn = False
     e_price = {"X": 100*random.random(), "Y":100*random.random()}
 
     def __init__(self, tid, ttype, talgo):
@@ -1187,7 +1187,7 @@ class Trader_GDZ(Trader):
             if best[0] >= 0:
                 return best[1]
             elif best[0] < 0:
-                #self.active = False
+                self.active = False
                 return None
             
         else:
@@ -1199,7 +1199,7 @@ class Trader_GDZ(Trader):
         """
         """
         
-        if Trader.new_turn:
+        if Trader_GDZ.new_turn:
             
             good = order.ptype
 
@@ -1236,7 +1236,7 @@ class Trader_GDZ(Trader):
             
             #Save new order book as previous
             self.last_lob = deepcopy(lob)
-            Trader.new_turn = False
+            Trader_GDZ.new_turn = False
             
             #Save new equilibrium price
             Trader_GDZ.e_price[good]  = self.equilibrium_price(good, lob)
@@ -1328,7 +1328,7 @@ for i in range(3):
 
 for i in range(3):
     for j in [1,2,3]:
-        traders[trader_id] = trader_type(trader_id, j, "ZIP") 
+        traders[trader_id] = trader_type(trader_id, j, "eGD") 
         trader_id += 1 
 
 
@@ -1393,7 +1393,8 @@ for j in tqdm(range(periods), desc="Episode"):
                 order.accepted = successful_order
                 #Check if the order improved/updated the lob and if so call respond function of all traders
                 if successful_order:
-                    Trader.new_turn = True
+                    Trader_eGD.new_turn = True
+                    Trader_GDZ.new_turn = True
                     alob = exchange.publish_alob()
                     #Add order to the list 
                     lobs.append(deepcopy(alob))
