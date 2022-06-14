@@ -323,6 +323,7 @@ class Trader:
             raise ValueError(f"Trader type {self.ttype} is invalid, please choose 1,2 or 3.")
         self.balance = balance
         self.active = True
+        self.utility = 0 
         
             
     def calc_utility(self, balance):
