@@ -579,7 +579,7 @@ class Trader_ZIP(Trader):
                 order = Order(1, self.tid, action, good, price, quantity, time)
                 
                 #Check if the order does not decrease utility else post nothing
-                if self.utility_gain_order(order) >= 0:                 
+                if self.utility_gain_order(order) >= 0 and price > 0:                 
                     return order
                 else:
                     #Order does not give extra utility
@@ -1359,141 +1359,149 @@ def online_average(old_avg, new_observation, n):
 
 
 
-# #Market session
-
 endtime = 300
 periods = 3
-runs = 1000
-
-
-utility_levels = []
+runs = 50
 
 
 
-#---- Market Session ----
-#History of all succesfull trades
-orders = []
-lobs = []
-trade_history = []
+utility_levels_prev = []
 
+for run in tqdm(range(1, runs+1) , desc="Run"):
+    #---- Market Session ----
+    #History of all succesfull trades
+    orders = []
+    lobs = []
+    trade_history = []
 
+    order_id = 1
 
-order_id = 1
-
-
-
-spec = [("ZI", 3), ("ZIP", 3)]
-trader_pairs, traders = generate_traders(spec)        
-exchange = Exchange(traders)
-
-
-for period in tqdm(range(1, periods+1), desc="Periods"):
+    spec = [("ZIP", 3),("GDZ", 3)]
+    trader_pairs, traders = generate_traders(spec)        
+    exchange = Exchange(traders)
     
-    #Reset allocation for all traders
-    for i in range(1, len(traders)+1):
-        traders[i].reset_allocation()
-
+    utility_levels = []
+    utility_levels_new = []
     
-    for time in tqdm(range(1, endtime+1), desc="Timesteps", mininterval=1):
+    
+    
+    for period in tqdm(range(1, periods+1), desc="Periods" , leave=False, disable=True):
         
-        #Calculate the average utility per Tradertype and Algorithm pair
-        for s in spec:
-            algo = s[0]
-            for j in [1,2,3]:
-                util = [traders[pair[0]].utility for pair in trader_pairs if (pair[1] == j and pair[2] == algo) ]
-                avg = sum(util)/len(util)
-                utility_levels.append( {"avg_util": avg,
-                                       "talgo": algo,
-                                       "ttype": j,
-                                       "time": time,
-                                       "period": period} )
-            
-            
-        
-        lob = exchange.publish_alob()
-        
+        #Reset allocation for all traders
         for i in range(1, len(traders)+1):
-            try:
-                traders[i].choose_action(lob)
-            except:
-                pass
+            traders[i].reset_allocation()
+    
         
-        #To add the factor of speed we can alter this bucket to have a trader in there more than once
-        #Depending on what speed score it has gotten
-        
-        #List of all trader ID's for selecting which one can act
-        trader_list = [i for i in range(1, len(traders)+1)]
-        
-        #Pick without replacement from trader list each timestep
-        while len(trader_list) != 0:
-            #Reset variables
-            trade = None
-            order = None
+        for time in tqdm(range(1, endtime+1), desc="Timesteps", mininterval=1, leave=False, disable=True):
             
-            #Choose random trader to act        
-            tid = random.choice( trader_list )
-            #Remove that trader from the temporary list
-            trader_list.remove(tid)
+            #Calculate the average utility per Tradertype and Algorithm pair
+            for s in spec:
+                algo = s[0]
+                for j in [1,2,3]:
+                    util = [traders[pair[0]].utility for pair in trader_pairs if (pair[1] == j and pair[2] == algo) ]
+                    avg = sum(util)/len(util)
+                    utility_levels.append( {"avg_util": avg,
+                                           "talgo": algo,
+                                           "ttype": j,
+                                           "time": time,
+                                           "period": period} )
+                
+                
             
-            #Select that trader
-            trader = traders[tid]
-            
-            #Ask the trader to give an order
             lob = exchange.publish_alob()
             
+            for i in range(1, len(traders)+1):
+                try:
+                    traders[i].choose_action(lob)
+                except:
+                    pass
             
-            order = trader.get_order(time, lob)
+            #To add the factor of speed we can alter this bucket to have a trader in there more than once
+            #Depending on what speed score it has gotten
             
-         
-            #Check if trader gave an order
-            if order:
-                orders.append(order)
-                #Give order unique id and increment
-                order.oid = order_id
-                order_id += 1
+            #List of all trader ID's for selecting which one can act
+            trader_list = [i for i in range(1, len(traders)+1)]
+            
+            #Pick without replacement from trader list each timestep
+            while len(trader_list) != 0:
+                #Reset variables
+                trade = None
+                order = None
                 
-                order.lob = deepcopy(lob)
+                #Choose random trader to act        
+                tid = random.choice( trader_list )
+                #Remove that trader from the temporary list
+                trader_list.remove(tid)
                 
-                #Process the order
-                successful_order, trade = exchange.process_order(time, order)
+                #Select that trader
+                trader = traders[tid]
                 
-                order.accepted = successful_order
-                #Check if the order improved/updated the lob and if so call respond function of all traders
-                if successful_order:
-                    Trader_eGD.new_turn = True
-                    Trader_GDZ.new_turn = True
-                    alob = exchange.publish_alob()
-                    #Add order to the list 
-                    lobs.append(deepcopy(alob))
-                    for i in range(1, len(traders)+1):
-                        traders[i].respond(time, alob, order)
-    
-                #Check if trade has occurred
-                if trade is not None:
-                    #Update the balance and utility of the parties involved after the trade 
-                    #and save the current values of their balance and utility level after the trade
-                    seller_balance, seller_util = traders[ trade["seller_id"] ].bookkeep(trade)
-                    buyer_balance, buyer_util = traders[ trade["buyer_id"] ].bookkeep(trade)    
+                #Ask the trader to give an order
+                lob = exchange.publish_alob()
+                
+                
+                order = trader.get_order(time, lob)
+                
+             
+                #Check if trader gave an order
+                if order:
+                    orders.append(order)
+                    #Give order unique id and increment
+                    order.oid = order_id
+                    order_id += 1
                     
-                    buyer_id = trade["buyer_id"]
-                    seller_id = trade["seller_id"]
-                
-                    #Add updated information to the trade
-                    trade["buyer_algo"] = traders[buyer_id].talgo
-                    trade["buyer_util"] = buyer_util
-                    trade["buyer_balance"] = buyer_balance
-                    trade["seller_algo"] = traders[seller_id].talgo
-                    trade["seller_util"] = seller_util
-                    trade["seller_balance"] = seller_balance
-    
+                    order.lob = deepcopy(lob)
+                    
+                    #Process the order
+                    successful_order, trade = exchange.process_order(time, order)
+                    
+                    order.accepted = successful_order
+                    #Check if the order improved/updated the lob and if so call respond function of all traders
+                    if successful_order:
+                        Trader_eGD.new_turn = True
+                        Trader_GDZ.new_turn = True
+                        alob = exchange.publish_alob()
+                        #Add order to the list 
+                        lobs.append(deepcopy(alob))
+                        for i in range(1, len(traders)+1):
+                            traders[i].respond(time, alob, order)
         
-                    #Append it to the history using deepcopy 
-                    trade_history.append(deepcopy(trade))   
-                    if (seller_balance["money"] < 0 or buyer_balance["money"] < 0):
-                        raise ValueError("money negative")
-            else:
-                pass
+                    #Check if trade has occurred
+                    if trade is not None:
+                        #Update the balance and utility of the parties involved after the trade 
+                        #and save the current values of their balance and utility level after the trade
+                        seller_balance, seller_util = traders[ trade["seller_id"] ].bookkeep(trade)
+                        buyer_balance, buyer_util = traders[ trade["buyer_id"] ].bookkeep(trade)    
+                        
+                        trade["period"] = period
+                        buyer_id = trade["buyer_id"]
+                        seller_id = trade["seller_id"]
+                    
+                        #Add updated information to the trade
+                        trade["buyer_algo"] = traders[buyer_id].talgo
+                        trade["buyer_util"] = buyer_util
+                        trade["buyer_balance"] = buyer_balance
+                        trade["seller_algo"] = traders[seller_id].talgo
+                        trade["seller_util"] = seller_util
+                        trade["seller_balance"] = seller_balance
+                        
+        
+            
+                        #Append it to the history using deepcopy 
+                        trade_history.append(deepcopy(trade))   
+                        if (seller_balance["money"] < 0 or buyer_balance["money"] < 0):
+                            raise ValueError("money negative")
+                else:
+                    pass
+                
+    if utility_levels_prev:
+        for old, new in zip(utility_levels_prev, utility_levels):
+            new["avg_util"] = online_average(old["avg_util"], new["avg_util"], run )
+            
+        
+    utility_levels_prev = deepcopy(utility_levels)
 
 
-create_csv("util", utility_levels)
-create_csv("test", trade_history)
+
+create_csv("util", utility_levels_prev)
+create_csv("trade", trade_history)

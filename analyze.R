@@ -5,20 +5,19 @@ setwd(dirname(getActiveDocumentContext()$path))
 
 
 #Open file
-data = read.csv("util.csv")
-data = data[!(data$time == 1  & data$period == 1), ]
+util_data = read.csv("util.csv")
+util_data = util_data[!(util_data$time == 1  & util_data$period == 1), ]
 
 #Add x values for plotting
-data$x = (data$time + (data$period-1)*300)
-data$avg_util = ifelse(data$time  == 1, NA , data$avg_util)
+util_data$x = (util_data$time + (util_data$period-1)*300)
+util_data$avg_util = ifelse(util_data$time  == 1, NA , util_data$avg_util)
 
 #Convert ttype to string
-data$ttype = as.character(data$ttype)
+util_data$ttype = as.character(util_data$ttype)
 
-#Res
 
 #Price over time 
-ggplot(data, aes(x = x, y= avg_util, colour= ttype, linetype=talgo  ))+
+ggplot(util_data, aes(x = x, y= avg_util, colour= ttype, linetype=talgo  ))+
   geom_line(size=0.75) +
   ylab("Average utility level") +
   xlab("Period") +
@@ -35,6 +34,21 @@ ggplot(data, aes(x = x, y= avg_util, colour= ttype, linetype=talgo  ))+
                                size=14, angle=45)
   )
 
-
-
-#Test on Allocations
+#Price data
+trade_data = read.csv("trade.csv")
+trade_data$x = (trade_data$time + (trade_data$period-1)*300)
+ggplot(trade_data, aes(x = x, y= price, colour= ptype  )) +
+  geom_line(size=1) +
+  xlab("Period") +
+  scale_x_continuous(breaks=seq(0,900,300), labels=c("0","1","2","3")) +
+  theme(
+    legend.text = element_text(size = 12),
+    panel.background = element_rect(fill = "#BFD5E3", colour = "#6D9EC1",
+                                    size = 2, linetype = "solid"),
+    panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                    colour = "white"), 
+    panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                    colour = "white"),
+    axis.text.x = element_text(face="bold", color="#993333", 
+                               size=14, angle=45)
+  )
