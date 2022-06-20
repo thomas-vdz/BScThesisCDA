@@ -1,9 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Tue May  3 10:22:34 2022
 
-@author: Gebruiker
-"""
 import csv
 import random
 from tqdm import tqdm, trange
@@ -86,10 +81,11 @@ class Order:
         self.quantity = quantity
         self.time = time
         self.accepted = False
-        self.lob = {}
+        self.strategic = False
+
         
     def __str__(self):
-        return f"Order{self.oid}: trader{self.tid} posted a {self.otype} {self.price} per unit for {self.quantity} of good {self.ptype} at t={self.time}, {self.accepted} \n {self.lob}"
+        return f"Order{self.oid}: trader{self.tid} posted a {self.otype} {self.price} per unit for {self.quantity} of good {self.ptype} at t={self.time}, {self.accepted}"
 
 
 class Orderbook:
@@ -188,6 +184,11 @@ class Exchange(Orderbook):
                     #Check if counterparty still holds the money to complete the trade else delete their old offer
                     if ( self.ob.lob[order.ptype]["bid"].price * self.ob.lob[order.ptype]["bid"].quantity) <= traders[buyer_id].balance["money"]:
                         
+                        if self.ob.lob[order.ptype]["bid"].strategic is True:
+                            arbitrage = True
+                        else:
+                            arbitrage = False
+                            
                         #Partial sell: update quantity
                         if order.quantity < self.ob.lob[order.ptype]["bid"].quantity:
                             self.ob.lob[order.ptype]["bid"].quantity -= order.quantity                        
@@ -201,13 +202,16 @@ class Exchange(Orderbook):
                             price_sold = self.ob.lob[order.ptype]["bid"].price
                             self.ob.del_order_lob(order.ptype, "bid")
                         
+                        
+                        
                         #Create trade for book keeping (we might add type here if we want to save other transactions like cancellations)                
                         trade = {"time" : time,
                                  "buyer_id" : buyer_id,
                                  "seller_id" : seller_id,
                                  "price" : price_sold,
                                  "quantity" : quant_sold,
-                                 "ptype" : order.ptype
+                                 "ptype" : order.ptype,
+                                 "arbitrage" : arbitrage
                                  }
                         
                     else:
@@ -243,6 +247,12 @@ class Exchange(Orderbook):
                     
                     #Check if counterparty still holds the goods to complete the trade else delete their old offer
                     if (order.quantity) <= traders[seller_id].balance[order.ptype]:
+                        
+                        if self.ob.lob[order.ptype]["ask"].strategic is True:
+                            arbitrage = True
+                        else:
+                            arbitrage = False
+                        
                         #Partial buy: update quantity
                         if order.quantity < self.ob.lob[order.ptype]["ask"].quantity:
                             self.ob.lob[order.ptype]["ask"].quantity -= order.quantity                        
@@ -256,6 +266,7 @@ class Exchange(Orderbook):
                             quant_sold = self.ob.lob[order.ptype]["ask"].quantity
                             price_sold = self.ob.lob[order.ptype]["ask"].price
                             self.ob.del_order_lob(order.ptype, "ask")
+                            
                         
                         #Create trade for book keeping (we might add type here if we want to save other transactions like cancellations)                
                         trade = {"time" : time,
@@ -263,7 +274,8 @@ class Exchange(Orderbook):
                                  "seller_id" : seller_id,
                                  "price" : price_sold,
                                  "quantity" : quant_sold,
-                                 "ptype" : order.ptype
+                                 "ptype" : order.ptype,
+                                 "arbitrage" : arbitrage
                                  }                                     
                     else:
                         #Delete offer counterparty 
@@ -309,6 +321,7 @@ class Trader:
         self.talgo = talgo #String: What kind of trader it is: ZIP,ZIC eGD etc
         self.balance = {}  #Dictionary containing the balance of the trader
         self.blotter = [] #List of executed trades
+        self.pending_orders = []
         self.utility = 0 #Utility level of the trader
         self.active = False
         self.reset_allocation()
@@ -409,21 +422,38 @@ class Trader:
         if self.balance["money"] >  (orderbook["Y"]["bid"][0] or 0):
             choices.append( ("bid", "Y") )                
         
-        if self.tid == 1:
-            if ("bid","X") in choices:
-                choices.remove(("bid","X") )
-        elif self.tid == 2:
-            if ("bid","Y") in choices:
-                choices.remove(("bid","Y") )
-        elif self.tid == 3:
-            if ("ask","X") in choices:
-                choices.remove(("ask","X") )
-            if ("ask","Y") in choices:
-                choices.remove(("ask","Y") )    
+        # if self.tid == 1:
+        #     if ("bid","X") in choices:
+        #         choices.remove(("bid","X") )
+        # elif self.tid == 2:
+        #     if ("bid","Y") in choices:
+        #         choices.remove(("bid","Y") )
+        # elif self.tid == 3:
+        #     if ("ask","X") in choices:
+        #         choices.remove(("ask","X") )
+        #     if ("ask","Y") in choices:
+        #         choices.remove(("ask","Y") )    
                 
         
         return choices
+    
+    def add_pending_order(self, order):
+        """Adds pending order to the list"""
+        self.pending_orders.append(order)
+    
+    def check_pending_orders(self, lob):
+        """Checks if orders are still pending in orderbook"""
         
+        if len(self.pending_orders) > 0:
+            still_pending_orders = []
+            for order in self.pending_orders:
+                if lob[order.ptype][order.otype] == (order.price, order.quantity):
+                    still_pending_orders.append(order)
+            
+            self.pending_orders = still_pending_orders
+                
+
+    
     def utility_gain_order(self, order):
         """Function takes in an order and calculates the utility difference before and after assuming the order would result in an transaction"""
         new_balance = deepcopy(self.balance)
@@ -857,12 +887,12 @@ class Trader_eGD(Trader):
             }
     
     new_turn = False
-    e_price = {"X": 100*random.random(), "Y":100*random.random()}
+    e_price = {"X": 20 + 60*random.random(), "Y":10 + 30*random.random()}
 
     def __init__(self, tid, ttype, talgo):
         Trader.__init__(self, tid, ttype, talgo)
         self.markup = 0 #0.01 + 0.01 * random.random()
-        self.memory = 30
+        self.memory = 20
         self.possible_orders = []
 
 
@@ -943,23 +973,141 @@ class Trader_eGD(Trader):
         #Return the polynomial generated by the spline
         return lambda x: coef[0]*x**3 + coef[1]*x**2 + coef[2]*x + coef[3]
         
-        
     
-    def equilibrium_price(self, good, lob, verbose=False):
-        """
-            Estimating an equilibrium price by calculating where the probability of a bid acceptance is equal to an ask acceptance
-            This is done by calculating a vector of bida/ask probilities for different prices and checking where the absolute difference is minimal.
-        """
-
+    def estimate_probability(self, good, action, lob):
+        
         best_bid = (lob[good]["bid"][0] or 0)
         best_ask = (lob[good]["ask"][0] or 200)
         
         #Extract all the values for which p_ask_accept is defined and interpolate for the others
         his = Trader_eGD.history[good]
         
-        # --------- BID VECTOR -------------
         
-        #Get unique observed prices
+        # --------- BID VECTOR -------------
+        if action == "bid":
+            best_bid = (lob[good]["bid"][0] or 0)
+
+            #Get unique observed prices
+            prices_bid = np.unique( [h[0] for h in his if h[3] == "bid"] )
+            
+            #0 for [0: best_bid] so generate 0's and get rid of prices that are not > best_bid
+            yb = np.repeat(0, best_bid + 1)
+
+            prices_bid = prices_bid[prices_bid > best_bid ]
+            #Apppend 200 since that is almost always a split
+            prices_bid = np.append(prices_bid,200)
+            
+            #Split the numpy array into parts where numbers are consecutive if not then interpolate between them
+            split_bid = np.split(prices_bid, np.where(np.diff(prices_bid) != 1)[0]+1)
+            
+            
+            #Vectorize function so we can pass in arrays
+            p_bid = np.vectorize(self.p_bid_accept)
+            
+            #If there is no best bid then interpolate from 0 till next known bid
+            if best_bid == 0:
+                spline = self.GD_spline(good, "bid", 0, split_bid[0][0])
+                x = np.arange(1, split_bid[0][0])
+                yb = np.append(yb , spline(x) )
+
+            
+            if len(split_bid) == 1:
+                #We have no usable history so we interpolate from best_bid till 200
+                spline = self.GD_spline(good, "bid", best_bid, 200)
+                x = np.arange(best_bid + 1, 201)
+                yb = np.append(yb , spline(x) )
+
+            else:
+                #Fill the gap between the best_bid if it exists and the first known bid
+                if best_bid != split_bid[0][0] and best_bid != 0 :
+                    spline = self.GD_spline(good, "bid", best_bid, split_bid[0][0])
+                    x = np.arange(best_bid + 1, split_bid[0][0])
+                    yb = np.append(yb , spline(x) )
+
+                #Now calculate the values for the entire vector
+                n = len(split_bid)
+                for index in range(n):
+                    #Add the consecutive values
+                    yb = np.append(yb, p_bid(good, split_bid[index]) )
+
+                    #Interpolate for the values in between
+                    if index < n-1: #Check if we are not at the final split
+                        #Get current value
+                        current_val = split_bid[index][-1]
+                        #Get the next value to interpolate on 
+                        next_val = split_bid[index+1][0]
+                        
+                        #Get spline and values inbetween and calculate the values in between
+                        spline = self.GD_spline(good, "bid", current_val, next_val)
+                        x = np.arange(current_val + 1, next_val)
+                        
+                        yb = np.append(yb , spline(x) )
+            return yb
+            
+        elif action == "ask":
+            # --------- ASK VECTOR -------------
+            #For asks its definded from [0,best_ask) hence interpolate from 0 to the first value and add the 0's later
+            prices_ask = np.unique( [h[0] for h in his if h[3] == "ask"] )    
+            
+            #get rid of prices that are not < best_ask
+            prices_ask = prices_ask[prices_ask < best_ask]
+            split_ask = np.split(prices_ask, np.where(np.diff(prices_ask) != 1)[0]+1)
+            p_ask = np.vectorize(self.p_ask_accept)
+            
+            #Interpolate between 0 and the first value
+            
+            if split_ask[0].size == 0:
+                spline = self.GD_spline(good, "ask", 0, best_ask)
+                x0 = np.arange(best_ask )
+                ya = spline(x0)
+            else:
+                first_val = split_ask[0][0]
+                spline = self.GD_spline(good, "ask", 0, first_val)
+                x0 = np.arange(first_val)
+                ya = spline(x0)
+                #Interpolate over the remaining values
+                n = len(split_ask)
+                
+                
+                for index in range(n):
+                    #Add the consecutive values
+                    ya = np.append(ya, p_ask(good, split_ask[index]) )
+                    
+                    #Interpolate for the values in between
+                    if index < n-1: #Check if we are not at the final split
+                        #Get current value
+                        current_val = split_ask[index][-1]
+                        #Get the next value to interpolate on -1 as its the last known variable
+                        next_val = split_ask[index+1][0]
+                        
+                        #Get spline and values inbetween and calculate the values in between
+                        spline = self.GD_spline(good, "ask", current_val, next_val)
+                        x = np.arange(current_val + 1, next_val)
+                        ya = np.append(ya , spline(x) )
+                last_val = prices_ask[-1]
+                
+                if best_ask != last_val:
+                    spline = self.GD_spline(good, "ask", last_val, best_ask)
+                    x = np.arange(last_val + 1, best_ask)
+                    ya = np.append(ya , spline(x) )
+            #Add the remaining zeros zo arrays are of equal length which is the 
+            
+            ya = np.append(ya , np.repeat(0, 201-best_ask))
+            
+            return ya
+        else:
+            raise ValueError(f" value {action} not valid please enter bid or ask ")
+    
+    def equilibrium_price(self, good, lob, verbose=False):
+        """
+            Estimating an equilibrium price by calculating where the probability of a bid acceptance is equal to an ask acceptance
+            This is done by calculating a vector of bida/ask probilities for different prices and checking where the absolute difference is minimal.
+        """
+        
+        #Extract all the values for which p_ask_accept is defined and interpolate for the others
+        his = Trader_eGD.history[good]
+        
+        
         prices_bid = np.unique( [h[0] for h in his if h[3] == "bid"] )
         prices_ask = np.unique( [h[0] for h in his if h[3] == "ask"] )
         
@@ -971,128 +1119,19 @@ class Trader_eGD(Trader):
                 price = 10 + 30*random.random()
             return price
         
-        # --------- BID VECTOR -------------
-        
-        #0 for [0: best_bid] so generate 0's and get rid of prices that are not > best_bid
-        yb = np.repeat(0, best_bid + 1)
+        #Once in a 100.000 runs we have a singular matrix so we do nothing if that happens
 
-        prices_bid = prices_bid[prices_bid > best_bid ]
-        #Apppend 200 since that is almost always a split
-        prices_bid = np.append(prices_bid,200)
-        
-        #Split the numpy array into parts where numbers are consecutive if not then interpolate between them
-        split_bid = np.split(prices_bid, np.where(np.diff(prices_bid) != 1)[0]+1)
-        
-        
-        #Vectorize function so we can pass in arrays
-        p_bid = np.vectorize(self.p_bid_accept)
-        
-        #If there is no best bid then interpolate from 0 till next known bid
-        if best_bid == 0:
-            spline = self.GD_spline(good, "bid", 0, split_bid[0][0])
-            x = np.arange(1, split_bid[0][0])
-            yb = np.append(yb , spline(x) )
-
-        
-        if len(split_bid) == 1:
-            #We have no usable history so we interpolate from best_bid till 200
-            spline = self.GD_spline(good, "bid", best_bid, 200)
-            x = np.arange(best_bid + 1, 201)
-            yb = np.append(yb , spline(x) )
-
-        else:
-            #Fill the gap between the best_bid if it exists and the first known bid
-            if best_bid != split_bid[0][0] and best_bid != 0 :
-                spline = self.GD_spline(good, "bid", best_bid, split_bid[0][0])
-                x = np.arange(best_bid + 1, split_bid[0][0])
-                yb = np.append(yb , spline(x) )
-
-            #Now calculate the values for the entire vector
-            n = len(split_bid)
-            for index in range(n):
-                #Add the consecutive values
-                yb = np.append(yb, p_bid(good, split_bid[index]) )
-
-                #Interpolate for the values in between
-                if index < n-1: #Check if we are not at the final split
-                    #Get current value
-                    current_val = split_bid[index][-1]
-                    #Get the next value to interpolate on 
-                    next_val = split_bid[index+1][0]
-                    
-                    #Get spline and values inbetween and calculate the values in between
-                    spline = self.GD_spline(good, "bid", current_val, next_val)
-                    x = np.arange(current_val + 1, next_val)
-                    
-                    yb = np.append(yb , spline(x) )
-
-        
-
-        # --------- ASK VECTOR -------------
-        #For asks its definded from [0,best_ask) hence interpolate from 0 to the first value and add the 0's later
-           
-        
-        #get rid of prices that are not < best_ask
-        prices_ask = prices_ask[prices_ask < best_ask]
-        split_ask = np.split(prices_ask, np.where(np.diff(prices_ask) != 1)[0]+1)
-        p_ask = np.vectorize(self.p_ask_accept)
-        
-        #Interpolate between 0 and the first value
-        
-        if split_ask[0].size == 0:
-            spline = self.GD_spline(good, "ask", 0, best_ask)
-            x0 = np.arange(best_ask )
-            ya = spline(x0)
-        else:
-            first_val = split_ask[0][0]
-            spline = self.GD_spline(good, "ask", 0, first_val)
-            x0 = np.arange(first_val)
-            ya = spline(x0)
-            #Interpolate over the remaining values
-            n = len(split_ask)
-            
-            
-            for index in range(n):
-                #Add the consecutive values
-                ya = np.append(ya, p_ask(good, split_ask[index]) )
-                
-                #Interpolate for the values in between
-                if index < n-1: #Check if we are not at the final split
-                    #Get current value
-                    current_val = split_ask[index][-1]
-                    #Get the next value to interpolate on -1 as its the last known variable
-                    next_val = split_ask[index+1][0]
-                    
-                    #Get spline and values inbetween and calculate the values in between
-                    spline = self.GD_spline(good, "ask", current_val, next_val)
-                    x = np.arange(current_val + 1, next_val)
-                    ya = np.append(ya , spline(x) )
-            last_val = prices_ask[-1]
-            
-            if best_ask != last_val:
-                spline = self.GD_spline(good, "ask", last_val, best_ask)
-                x = np.arange(last_val + 1, best_ask)
-                ya = np.append(ya , spline(x) )
-        #Add the remaining zeros zo arrays are of equal length which is the 
-        
-        ya = np.append(ya , np.repeat(0, 201-best_ask))
-
-    
-        
-        if verbose:
-            print(ya)
-            print(len(ya))
-            print(yb)
-            print(len(yb))
-            print(good)
+        ya = self.estimate_probability(good, "ask", lob)
+        yb = self.estimate_probability(good, "bid", lob)
         
         #Check where the absolute difference is smallest since there we have that pbid = pask
         absdiff = abs(ya -yb)
         
-        eq_price = np.random.choice(np.where(absdiff == np.amin(absdiff))[0] )
+        eq_price = np.random.choice(np.where(absdiff == np.amin(absdiff))[0] ) 
         
         return eq_price
-    
+
+
     
     def get_order(self, time, lob, verbose=False):
         
@@ -1105,7 +1144,9 @@ class Trader_eGD(Trader):
                 
                 action = choice[0]
                 good = choice[1]
-                price = Trader_eGD.e_price[good]
+                #Add some randomness 
+                offset = -1 + 2*random.random() 
+                price = round(Trader_eGD.e_price[good] + offset)
                 
                 
                 best_bid = (lob[good]["bid"][0] or 0)
@@ -1119,7 +1160,7 @@ class Trader_eGD(Trader):
                         shout_price = None
                     else:
                         #If your price is the same as best bid and the spread is very small accept the best ask
-                        if shout_price == best_bid and ( best_ask - best_bid <= 2) :
+                        if shout_price == best_bid and ( best_ask - best_bid <= 1) :
                             shout_price = best_ask
                         elif shout_price < best_bid:
                             shout_price = None
@@ -1127,7 +1168,7 @@ class Trader_eGD(Trader):
                         
                 elif action == "ask":
                     shout_price = round(price*(1+self.markup))
-                    if shout_price == best_ask and ( best_ask - best_bid <= 2):
+                    if shout_price == best_ask and ( best_ask - best_bid <= 1):
                         shout_price = best_bid 
                     elif shout_price > best_ask:
                         shout_price = None
@@ -1163,7 +1204,6 @@ class Trader_eGD(Trader):
             good = order.ptype
 
             for action in ["bid", "ask"]:                
-                
                 floor = lob[good][action]          
                 prev =  self.last_lob[good][action]
                 
@@ -1197,119 +1237,72 @@ class Trader_eGD(Trader):
             self.last_lob = deepcopy(lob)
             Trader_eGD.new_turn = False
             
-            #Save new equilibrium price
-            Trader_eGD.e_price[good]  = self.equilibrium_price(good, lob)
+            
+            try:
+                #Save new equilibrium price
+                Trader_eGD.e_price[good]  = self.equilibrium_price(good, lob)
+            except:
+                #Keep the old one
+                pass
             
         else:
             pass
         
-class Trader_GDZ(Trader):
-    """
-    GDZ Trader
-    
-    """
-    history = {
-        "X":[],
-        "Y":[],
-        } 
-    
-    last_lob = {
-            "X":{"bid":(None,None),"ask":(None,None)},
-            "Y":{"bid":(None,None),"ask":(None,None)},
-            }
-    
-    new_turn = False
-    e_price = {"X": 100*random.random(), "Y":100*random.random()}
 
+
+class Trader_GDZ(Trader_eGD):
     def __init__(self, tid, ttype, talgo):
-        Trader.__init__(self, tid, ttype, talgo)
-        self.markup = 0 #0.01 + 0.01 * random.random()
-        self.memory = 30
-        self.possible_orders = []
-
-
-    def trim_history(self, good):
-        n_trades = len([t for t in Trader_GDZ.history[good] if t[2]==True])
-                      
-        if n_trades > self.memory:
-            #Get the index of the first trade
-            index = [t[2] for t in Trader_GDZ.history[good]].index(True)
-            #Forget the history that happend before and including the last trade
-            Trader_GDZ.history[good] = Trader_GDZ.history[good][index+1:]
+        super().__init__(tid, ttype, talgo)
+        self.next_order = None
+        self.arbitrage_trades = []
+        #Saves the order where you lost on so we can 
+        self.arbitrage_order = None
         
-
-    def p_bid_accept(self, good, price):
-        """ Estimates the probability a bid will be accepted given previous observations"""
+    def bookkeep(self, trade):
+        """Updates the balance of the trader and adds the trade to the blotter """
+        #Add the transaction to blotter
+        self.blotter.append(trade)
         
-        q_bid_acc = sum( [ q[1] for q in Trader_GDZ.history[good] if (q[0] <= price  and q[2] == True and q[3] == "bid" ) ] )
-        q_ask = sum( [ q[1] for q in Trader_GDZ.history[good] if (q[0] <= price and q[3] == "ask" )] )
-        
-        #Rejected bids
-        q_bid_rej = sum( [ q[1] for q in Trader_GDZ.history[good] if (q[0] >= price and q[2] == False and q[3] == "bid") ] )
-        
-        try:
-            prob = (q_bid_acc + q_ask ) / (q_bid_acc + q_ask + q_bid_rej)
-            return prob
-        except:
-            return 0
-    
-    def p_ask_accept(self, good, price):
-        """ Estimates the probability an ask will be accepted given previous observations"""
-        
-        q_ask_acc = sum( [ q[1] for q in Trader_GDZ.history[good] if (q[0] >= price  and q[2] == True and q[3] == "ask" ) ] )
-        q_bid = sum( [ q[1] for q in Trader_GDZ.history[good] if (q[0] >= price and q[3] == "bid" )] )
-        
-        #Rejected asks
-        q_ask_rej = sum( [ q[1] for q in Trader_GDZ.history[good]if (q[0] <= price and q[2] == False and q[3] == "ask") ] )
-                
-        try:
-            prob = (q_ask_acc + q_bid ) / (q_ask_acc + q_bid + q_ask_rej)
-            return prob
-        except:
-            return 0  
-        
-    
-    def equilibrium_price(self, good, lob):
-        """
-            Estimating an equilibrium price by calculating where the probability of a bid acceptance is equal to an ask acceptance
-            This is done by calculating a vector of bida/ask probilities for different prices and checking where the absolute difference is minimal.
-        """
-        
-        best_bid = (lob[good]["bid"][0] or 0)
-        best_ask = (lob[good]["ask"][0] or 200)
-        
-        ya = []
-        for i in range(0, 201):
+        #If trader and seller are the same do nothing
+        if trade["buyer_id"] == trade["seller_id"]:
+            pass
+        #Check if its the buyer or seller of the trade and update balances
+        elif trade["buyer_id"] == self.tid:
             
-            if i < best_ask:
-                ya.append(self.p_ask_accept(good, i ))
-            else:
-                ya.append(0)
-                
-        yb = []
-        for i in range(0, 201):
+            #Add goods of correct type
+            self.balance[ trade["ptype"] ] += trade["quantity"]
+            #Subtract money
+            self.balance["money"] -= (trade["quantity"] * trade["price"])
             
-            if i > best_bid:
-                yb.append(self.p_bid_accept(good, i ))
-            else:
-                yb.append(0)
+        elif trade["seller_id"] == self.tid:
+            
+            #Subtract goods of correct type
+            self.balance[ trade["ptype"] ] -= trade["quantity"]
+            #Add money
+            self.balance["money"] += (trade["quantity"] * trade["price"])
+            
+        else:
+            raise ValueError("Trader was not involved in this trade")
         
+        #Recalculate utility
+        self.utility = self.calc_utility(self.balance)
         
+        self.arbitrage_order = None
         
-        ya = np.array(ya)            
-        yb = np.array(yb)
+        #Return new balance and utility level after transaction
+        return [self.balance , self.utility]    
         
-        
-        absdiff = abs(ya -yb)
-        
-        eq_price = np.random.choice(np.where(absdiff == np.amin(absdiff))[0] )
-        
-        return eq_price
-    
-    
     def get_order(self, time, lob, verbose=False):
         
-        if self.active is True:
+        #If we have an arbitrage order post that one else give regular one
+        if self.next_order:
+            order = deepcopy(self.next_order)
+            self.next_order = None
+            return order
+        elif self.arbitrage_order is not None:
+            #If we have an active arbitrage order then we wait 
+            pass
+        else:    
             quantity = 1 
             choices = self.get_feasible_choices(lob, False)
             possible_orders = []
@@ -1318,7 +1311,9 @@ class Trader_GDZ(Trader):
                 
                 action = choice[0]
                 good = choice[1]
-                price = Trader_GDZ.e_price[good]
+                #Add some randomness 
+                offset = -1 + 2*random.random() 
+                price = round(Trader_eGD.e_price[good] + offset)
                 
                 
                 best_bid = (lob[good]["bid"][0] or 0)
@@ -1327,19 +1322,21 @@ class Trader_GDZ(Trader):
                 if action == "bid":
                     shout_price = round(price*(1-self.markup))
                     
+                    #Check if you have enough money
                     if shout_price > self.balance["money"]:
                         shout_price = None
                     else:
-                        if shout_price == best_bid:
-                            shout_price = best_bid + 1
+                        #If your price is the same as best bid and the spread is very small accept the best ask
+                        if shout_price == best_bid and ( best_ask - best_bid <= 1) :
+                            shout_price = best_ask
                         elif shout_price < best_bid:
                             shout_price = None
                             
                         
                 elif action == "ask":
                     shout_price = round(price*(1+self.markup))
-                    if shout_price == best_ask:
-                        shout_price = best_ask - 1  
+                    if shout_price == best_ask and ( best_ask - best_bid <= 1):
+                        shout_price = best_bid 
                     elif shout_price > best_ask:
                         shout_price = None
                     
@@ -1349,6 +1346,7 @@ class Trader_GDZ(Trader):
                     possible_orders.append( (self.utility_gain_order(order) , order ) )
                     
                 self.possible_orders = possible_orders
+    
             try:
                 best = max(possible_orders,key=itemgetter(0))
             except:
@@ -1357,63 +1355,75 @@ class Trader_GDZ(Trader):
             if best[0] >= 0:
                 return best[1]
             elif best[0] < 0:
-                self.active = False
-                return None
+                order = self.arbitrage_opportunity(time, lob)
+                return order
             
-        else:
-            return None
         
-
-    
-    def respond(self, time, lob, order):
-        """
-        """
+    def arbitrage_opportunity(self, time, lob, verbose=False):
         
-        if Trader_GDZ.new_turn:
+        options = []
+        #Check in the lob if we can find a possible arbitrage trade
+        
+        for pair in [("X","bid"),("X","ask"),("Y","bid"),("Y","ask")]:
+            mlob = deepcopy(lob)
+            actions = ["ask", "bid"]
+            good = pair[0]
+            action = pair[1]
+            price = lob[good][action][0]
             
-            good = order.ptype
-
-            for action in ["bid", "ask"]:                
+            #remove the action and take the remaining one to get the opposite
+            actions.remove(action)
+            opposite_action = actions[0]
+            
+            
+            
+            if price is not None:
                 
-                floor = lob[good][action]          
-                prev =  self.last_lob[good][action]
+                #Calculate the utility of taking the outstanding floorprice
+                order = Order(1, self.tid, opposite_action, good, price, 1, time) 
+                util = self.utility_gain_order(order)
                 
-                #Only add change if orderbook has changed
-                if floor != prev:
-                    #check if there is an order
-                    if floor[0] is not None:
-         
-                        #Check if there was a previous order
-                        if prev[0] != None:
-                            prev_order =  (prev[0], prev[1], False, action, order.oid) 
-                            
-                            #Check if the floor was impoved if so the previous one was rejected
-                            if action == "bid":
-                                if prev[0] < floor[0]:
-                                    Trader_GDZ.history[good].append(prev_order)
-                                    
-                            elif action == "ask":
-                                if prev[0] > floor[0]:
-                                    Trader_GDZ.history[good].append(prev_order)
-                                    
-                    elif floor[0] is None:
-                        #Check if there was a previous floor if so then it was accepted                
-                        if prev[0] != None:
-                            prev_order =  (prev[0], prev[1], True, action, order.oid) 
-                            Trader_GDZ.history[good].append(prev_order)
-                            #Trim the history if needed
-                            self.trim_history(good)
+                if util < 0:
+                    #We need to estimate the probability AFTER we take the trade
+                    mlob[good][action] = [None, None]
+                    
+                    #Estimate the probability of buying/selling it back later for a higher price 
+                    prob = self.estimate_probability(good, action, mlob)
+                    
+                    x = np.arange(201)
+                    #Create a vector of profit if sold at price x
+                    if action == "ask":
+                        profits = x - np.repeat(price, 201)
+                    elif action == "bid":
+                        profits = np.repeat(price, 201) -  x
+                    #Set negative profits to 0
+                    profits *= (profits > 0)
+                    
+                    #Calculate the expected profits and choose the best arbitrage trade
+                    expected_profits = profits*prob
+                    optimal_price = np.argmax(expected_profits)
+                    expected_profit = expected_profits[optimal_price]
+                    
+                    #If optimal is positive then queue the arbitrage trade and buy/sell the good in the next order
+                    if optimal_price > 0:
+                        order = Order(1, self.tid, opposite_action, good, price, 1, time) 
+                        next_order = Order(1, self.tid, action, good, optimal_price, 1, time)                        
+                        next_order.strategic = True
+                        
+                        options.append( (expected_profit, order, next_order) )
+                        
+        if len(options) > 0:
+            #Choose the best option
+            best = max(options,key=itemgetter(0))
             
-            #Save new order book as previous
-            self.last_lob = deepcopy(lob)
-            Trader_GDZ.new_turn = False
+            #Return the immediate buy/sell order and save the arbitrage offer for the next period
+            self.next_order = best[2]
+            self.arbitrage_order = order
+            return best[1]
+                    
+                    
             
-            #Save new equilibrium price
-            Trader_GDZ.e_price[good]  = self.equilibrium_price(good, lob)
-            
-        else:
-            pass        
-  
+        
 
 #-------------------------- Other functions --------------------------------
 def create_csv(file_name, dictionaries):
@@ -1488,9 +1498,9 @@ def online_average(old_avg, new_observation, n):
 
 
 
-endtime = 300
+endtime = 150
 periods = 5
-runs = 25
+runs = 10
 
 
 
@@ -1508,7 +1518,7 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
     
     order_id = 1
 
-    spec = [("ZIP", 3),("eGD", 3)]
+    spec = [("ZIP", 3),("GDZ", 3)]
     trader_pairs, traders = generate_traders(spec)        
     exchange = Exchange(traders)
     
@@ -1516,13 +1526,12 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
 
         
   
-    for period in tqdm(range(1, periods+1), desc="Periods" , leave=False):
+    for period in tqdm(range(1, periods+1), desc="Periods" , leave=False, disable=True):
         
         #Reset allocation for all traders
         for i in range(1, len(traders)+1):
             traders[i].reset_allocation()
     
-            
         
         for time in tqdm(range(1, endtime+1), desc="Timesteps", mininterval=1, leave=False, disable=True):
             
@@ -1582,8 +1591,7 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
                     order.oid = order_id
                     order_id += 1
                     
-                    order.lob = deepcopy(lob)
-                    
+
                     #Process the order
                     successful_order, trade = exchange.process_order(time, order)
                     
@@ -1597,32 +1605,39 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
                         lobs.append(deepcopy(alob))
                         for i in range(1, len(traders)+1):
                             traders[i].respond(time, alob, order)
+                            traders[i].check_pending_orders(alob)
         
-                    #Check if trade has occurred
-                    if trade is not None:
-                        #Update the balance and utility of the parties involved after the trade 
-                        #and save the current values of their balance and utility level after the trade
-                        seller_balance, seller_util = traders[ trade["seller_id"] ].bookkeep(trade)
-                        buyer_balance, buyer_util = traders[ trade["buyer_id"] ].bookkeep(trade)    
+                        #Check if trade has occurred
+                        if trade is not None:
+                            #Update the balance and utility of the parties involved after the trade 
+                            #and save the current values of their balance and utility level after the trade
+                            seller_balance, seller_util = traders[ trade["seller_id"] ].bookkeep(trade)
+                            buyer_balance, buyer_util = traders[ trade["buyer_id"] ].bookkeep(trade)    
+                            
+                            trade["period"] = period
+                            trade["run"] = run
+                            buyer_id = trade["buyer_id"]
+                            seller_id = trade["seller_id"]
                         
-                        trade["period"] = period
-                        buyer_id = trade["buyer_id"]
-                        seller_id = trade["seller_id"]
-                    
-                        #Add updated information to the trade
-                        trade["buyer_algo"] = traders[buyer_id].talgo
-                        trade["buyer_util"] = buyer_util
-                        trade["buyer_balance"] = buyer_balance
-                        trade["seller_algo"] = traders[seller_id].talgo
-                        trade["seller_util"] = seller_util
-                        trade["seller_balance"] = seller_balance
-                        
-        
-            
-                        #Append it to the history using deepcopy 
-                        trade_history.append(deepcopy(trade))   
-                        if (seller_balance["money"] < 0 or buyer_balance["money"] < 0):
-                            raise ValueError("money negative")
+                            #Add updated information to the trade
+                            trade["buyer_algo"] = traders[buyer_id].talgo
+                            trade["buyer_util"] = buyer_util
+                            trade["buyer_balance"] = buyer_balance
+                            trade["seller_algo"] = traders[seller_id].talgo
+                            trade["seller_util"] = seller_util
+                            trade["seller_balance"] = seller_balance
+                            
+                            # if trade['price'] > 150:
+                            #     raise ValueError("What is going on here")
+                
+                            #Append it to the history using deepcopy 
+                            trade_history.append(deepcopy(trade))   
+                            if (seller_balance["money"] < 0 or buyer_balance["money"] < 0):
+                                raise ValueError("money negative")
+                                
+                        elif trade is None:
+                            #Add the order to the pending orders
+                            trader.add_pending_order(order)
                 else:
                     pass
                 
