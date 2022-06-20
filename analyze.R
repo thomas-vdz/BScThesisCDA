@@ -10,7 +10,7 @@ setwd(dirname(getActiveDocumentContext()$path))
 #Run data 
 runs = 10
 periods = 5 
-endtime = 150
+endtime = 300
 
 
 
@@ -55,7 +55,7 @@ ggplot(util_data, aes(x = x, y= avg_util, colour= ttype, linetype=talgo  ))+
 #----------------- Trade/Price Plot ---------------------
 trade_data = read.csv( paste0("results/",most_recent(path="results", pattern="trade")) )
 
-trade_data$x = trade_data$time + trade_data$time*(trade_data$period-1)
+trade_data$x = trade_data$time + endtime*(trade_data$period-1)
 
 #Make unique id for each timestep at each run 
 trade_data$id = (trade_data$x + (trade_data$run-1)*(periods*endtime))
@@ -163,20 +163,29 @@ excess_data = read.csv( paste0("results/",most_recent(path="results", pattern="e
 excess_data$ttype = as.character(excess_data$ttype)
 
 #Gives the average excess per period/algorithm/tradertype
-average_excess = group_by(excess_data, ttype, talgo, period) %>% summarize(money = mean(money), X = mean(X), Y = mean(Y))
+average_excess = group_by(excess_data, ttype, talgo) %>% summarize(money = mean(money), X = mean(X), Y = mean(Y))
 
-#Sort by period 
-average_excess = average_excess[order(average_excess$period),]
+
+#Normalize to relative average_excess
+
+average_excess$money = average_excess$money/400
+average_excess$X = average_excess$X/10
+average_excess$Y = average_excess$Y/20
 average_excess
 
-ggplot(average_excess , aes(x = period, y= money, colour= ttype, linetype=talgo  ))+
-  geom_point(size=3)+
-  geom_line(size=0.75)
 
-ggplot(average_excess , aes(x = period, y= X, colour= ttype, linetype=talgo  ))+
-  geom_point(size=3)+
-  geom_line(size=0.75)
 
-ggplot(average_excess , aes(x = period, y= Y, colour= ttype, linetype=talgo  ))+
-  geom_point(size=3)+
-  geom_line(size=0.75)
+# ggplot(average_excess , aes(x = period, y= money, colour= ttype, linetype=talgo  ))+
+#   geom_point(size=3)+
+#   geom_line(size=0.75)
+# 
+# ggplot(average_excess , aes(x = period, y= X, colour= ttype, linetype=talgo  ))+
+#   geom_point(size=3)+
+#   geom_line(size=0.75)
+# 
+# ggplot(average_excess , aes(x = period, y= Y, colour= ttype, linetype=talgo  ))+
+#   geom_point(size=3)+
+#   geom_line(size=0.75)
+
+#----------------- Arbitrage Plot ---------------------
+arbitrage_data = read.csv( paste0("results/",most_recent(path="results", pattern="arbitrage")))
