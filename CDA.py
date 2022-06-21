@@ -1424,9 +1424,9 @@ def online_average(old_avg, new_observation, n):
 
 
 
-endtime = 300
+endtime = 200
 periods = 5
-runs = 10
+runs = 1000
 
 
 utility_levels_prev = []
@@ -1444,7 +1444,7 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
     
     order_id = 1
 
-    spec = [("eGD", 3)]
+    spec = [("ZIP", 6)]
     trader_pairs, traders = generate_traders(spec)        
     exchange = Exchange(traders)
     
@@ -1452,7 +1452,7 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
 
         
   
-    for period in tqdm(range(1, periods+1), desc="Periods" , leave=False, disable=False):
+    for period in tqdm(range(1, periods+1), desc="Periods" , leave=False, disable=True):
         
         #Reset allocation for all traders
         for i in range(1, len(traders)+1):
