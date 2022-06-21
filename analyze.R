@@ -4,13 +4,15 @@ library("ggplot2")
 library("tidyverse")
 library("dplyr")
 library("padr")
+library("kableExtra")
+library("scales")
 
 setwd(dirname(getActiveDocumentContext()$path))   
 
 #Run data 
 runs = 10
 periods = 5 
-endtime = 300
+endtime = 200
 
 
 
@@ -102,6 +104,7 @@ ggplot(stats_x, aes(x = x))+
   geom_line(aes(y = mean, colour= "Mean"))+
   geom_ribbon(aes(ymin=lowerbound, ymax=upperbound, x=x, fill = "band"), alpha = 0.3)+
   xlab("Period") +
+  ylab("Price") +
   scale_x_continuous(breaks=seq(0,endtime*periods,endtime), labels=c("0","1","2","3","4","5"))
 
 
@@ -153,6 +156,7 @@ ggplot(stats_y, aes(x = x))+
   geom_line(aes(y = mean, colour= "Mean"))+
   geom_ribbon(aes(ymin=lowerbound, ymax=upperbound, x=x, fill = "band"), alpha = 0.3)+
   xlab("Period") +
+  ylab("Price") +
   scale_x_continuous(breaks=seq(0,endtime*periods,endtime), labels=c("0","1","2","3","4","5"))
 
 
@@ -168,11 +172,16 @@ average_excess = group_by(excess_data, ttype, talgo) %>% summarize(money = mean(
 
 #Normalize to relative average_excess
 
-average_excess$money = average_excess$money/400
-average_excess$X = average_excess$X/10
-average_excess$Y = average_excess$Y/20
-average_excess
-
+convert_percent = label_percent()
+average_excess$money = convert_percent(average_excess$money/400)
+average_excess$X = convert_percent(average_excess$X/10)
+average_excess$Y = convert_percent(average_excess$Y/20)
+average_excess %>%
+  kbl(caption="Normalized Average excess ",
+      format="latex",
+      col.names = c("Type","Algorithm","Money","X","Y"),
+      align="r") %>%
+  kable_classic(full_width = F,  html_font = "Source Sans Pro")
 
 
 # ggplot(average_excess , aes(x = period, y= money, colour= ttype, linetype=talgo  ))+

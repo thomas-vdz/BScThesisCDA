@@ -403,41 +403,72 @@ class Trader:
                 excess["Y"] += e   
         return excess
     
-    def get_feasible_choices(self, orderbook, do_nothing=True):
+    def get_feasible_choices(self, orderbook, do_nothing=True, arbitrage=False):
         """Returns a list of all feasible options a trader has given the restiction that it should always improve the orderbook  """
         
-        if do_nothing:
-            choices = [("do nothing"," ")] 
-        else:
+        if arbitrage is True:
             choices = []
-        
-        
-        if self.balance["X"] > 0:
-            choices.append( ("ask", "X") )
-        if self.balance["Y"] > 0: 
-            choices.append( ("ask", "Y") )
             
-        #Check if we can improve best bid
-        if self.balance["money"] > (orderbook["X"]["bid"][0] or 0):
-            choices.append( ("bid", "X") )
+            #For each trader type give the offer pair so that we can do the action with probability 1
+            if self.ttype == 1:
+                #Check if we can sell y
+                if orderbook["Y"]["bid"][0] is not None and self.balance["Y"] > 0:
+                    choices.append(("ask", "Y"))
+                #Check if we can buy x immediatly and have enough money
+                elif orderbook["X"]["ask"][0] is not None and self.balance["money"] >= (orderbook["X"]["ask"][0] or 2000):
+                    choices.append(("bid", "X") )
+                    
+            elif self.ttype == 2:
+                #Check if we can buy y immediatly and have enough money
+                if orderbook["Y"]["ask"][0] is not None and self.balance["money"] >= (orderbook["Y"]["ask"][0] or 2000):
+                    choices.append(("bid", "Y"))
+                #Check if we can sell x
+                elif orderbook["X"]["bid"][0] is not None and self.balance["X"] > 0:
+                    choices.append(("ask", "X") )
+                    
+            elif self.ttype == 3:
+                #Check if we can sell y
+                if orderbook["Y"]["bid"][0] is not None and self.balance["Y"] > 0:
+                    choices.append(("ask", "Y"))
+                #Check if we can sell x
+                elif orderbook["X"]["bid"][0] is not None and self.balance["X"] > 0:
+                    choices.append(("ask", "X") )
+                    
+            return choices
             
-        if self.balance["money"] >  (orderbook["Y"]["bid"][0] or 0):
-            choices.append( ("bid", "Y") )                
+        else:
+            if do_nothing:
+                choices = [("do nothing"," ")] 
+            else:
+                choices = []
+            
+            
+            if self.balance["X"] > 0:
+                choices.append( ("ask", "X") )
+            if self.balance["Y"] > 0: 
+                choices.append( ("ask", "Y") )
+                
+            #Check if we can improve best bid
+            if self.balance["money"] > (orderbook["X"]["bid"][0] or 0):
+                choices.append( ("bid", "X") )
+                
+            if self.balance["money"] >  (orderbook["Y"]["bid"][0] or 0):
+                choices.append( ("bid", "Y") )                
         
-        # if self.tid == 1:
-        #     if ("bid","X") in choices:
-        #         choices.remove(("bid","X") )
-        # elif self.tid == 2:
-        #     if ("bid","Y") in choices:
-        #         choices.remove(("bid","Y") )
-        # elif self.tid == 3:
-        #     if ("ask","X") in choices:
-        #         choices.remove(("ask","X") )
-        #     if ("ask","Y") in choices:
-        #         choices.remove(("ask","Y") )    
+            # if self.tid == 1:
+            #     if ("bid","X") in choices:
+            #         choices.remove(("bid","X") )
+            # elif self.tid == 2:
+            #     if ("bid","Y") in choices:
+            #         choices.remove(("bid","Y") )
+            # elif self.tid == 3:
+            #     if ("ask","X") in choices:
+            #         choices.remove(("ask","X") )
+            #     if ("ask","Y") in choices:
+            #         choices.remove(("ask","Y") )    
                 
         
-        return choices
+            return choices
     
     def add_pending_order(self, order):
         """Adds pending order to the list"""
@@ -964,7 +995,7 @@ class Trader_eGD(Trader):
         prices_ask =  [h[0] for h in his if h[3] == "ask"] 
         
         #If there is not enough history then return a random price
-        if (len(prices_bid) < 10 or len(prices_bid) < 5):
+        if (len(prices_bid) < 10 or len(prices_ask) < 5):
             if good == "X":
                 price = 20 + 60*random.random()
             elif good == "Y":
@@ -991,6 +1022,8 @@ class Trader_eGD(Trader):
             quantity = 1 
             choices = self.get_feasible_choices(lob, False)
             possible_orders = []
+            
+            #Might set traders to inactive if they reached optimal utility ie excess is minimal.
             
             for choice in choices:
                 
@@ -1112,6 +1145,7 @@ class Trader_GDZ(Trader_eGD):
         #Saves the order where you lost on so we can 
         self.arbitrage_order = None
         self.wait_time = None
+        self.min_probability = 0.6
     
     def reset_allocation(self):
         #Give starting balance given the trading type for the STABLE scarf economy
@@ -1221,7 +1255,16 @@ class Trader_GDZ(Trader_eGD):
         elif self.arbitrage_order is not None:
             #If we have an active arbitrage order then we wait 
             pass
-        else:    
+        elif random.random() < 0.2 and time>10:
+            #20% chance of looking at arbitrage
+            try:
+                order = self.arbitrage_opportunity(time, lob)
+                return order
+            except:
+                return None
+        else:
+            #80% change of doing a regular eGD order
+            
             quantity = 1 
             choices = self.get_feasible_choices(lob, False)
             possible_orders = []
@@ -1273,72 +1316,60 @@ class Trader_GDZ(Trader_eGD):
             
             if best[0] >= 0:
                 return best[1]
-            elif best[0] < 0 and self.utility >= 0.1:
+            else:
+                return None
+            
                 
-                try:
-                    order = self.arbitrage_opportunity(time, lob)
-                    return order
-                except:
-                    return None
             
         
     def arbitrage_opportunity(self, time, lob, verbose=False):
         
-        options = []
+        choices = self.get_feasible_choices(lob, do_nothing=False, arbitrage=True)
         #Check in the lob if we can find a possible arbitrage trade
-        
-        for pair in [("X","bid"),("X","ask"),("Y","bid"),("Y","ask")]:
+        options = []
+        for choice in choices:
             mlob = deepcopy(lob)
             actions = ["ask", "bid"]
-            good = pair[0]
-            action = pair[1]
-            price = lob[good][action][0]
+            action = choice[0]
+            good = choice[1]
             
+
             #remove the action and take the remaining one to get the opposite
             actions.remove(action)
             opposite_action = actions[0]
+
+            price = lob[good][opposite_action][0]
+
+            #We need to estimate the probability AFTER we take the trade
+            mlob[good][opposite_action] = [None, None]
             
+            #Estimate the probability of buying/selling it back later for a better price 
+            prob = self.estimate_probability(good, opposite_action, mlob)
             
-            
-            if price is not None:
+            x = np.arange(201)
+            #Create a vector of profit if sold at price x
+            if opposite_action == "ask":
+                profits = x - np.repeat(price, 201)
                 
-                #Calculate the utility of taking the outstanding floorprice
-                order = Order(1, self.tid, opposite_action, good, price, 1, time) 
-                util = self.utility_gain_order(order)
+            elif opposite_action == "bid":
+                profits = np.repeat(price, 201) -  x
                 
-                if util < 0:
-                    #We need to estimate the probability AFTER we take the trade
-                    mlob[good][action] = [None, None]
-                    
-                    #Estimate the probability of buying/selling it back later for a higher price 
-                    prob_accept = self.estimate_probability(good, action, mlob)
-                    prob_reject = 1 -self.estimate_probability(good, opposite_action, mlob)
-                    
-                    x = np.arange(201)
-                    #Create a vector of profit if sold at price x
-                    if action == "ask":
-                        denom = prob_accept+prob_reject
-                        prob = np.divide(prob_accept, denom, out=np.zeros_like(prob_accept), where=denom!=0)
-                        profits = x - np.repeat(price, 201)
-                    elif action == "bid":
-                        denom = prob_accept+prob_reject
-                        prob = np.divide(prob_accept, denom, out=np.zeros_like(prob_accept), where=denom!=0)
-                        profits = np.repeat(price, 201) -  x
-                    #Set negative profits to 0
-                    profits *= (profits > 0)
-                    
-                    #Calculate the expected profits and choose the best arbitrage trade
-                    expected_profits = profits*prob
-                    optimal_price = np.argmax(expected_profits)
-                    expected_profit = expected_profits[optimal_price]
-                    
-                    #If optimal is positive then queue the arbitrage trade and buy/sell the good in the next order
-                    if optimal_price > 0:
-                        order = Order(1, self.tid, opposite_action, good, price, 1, time) 
-                        next_order = Order(1, self.tid, action, good, optimal_price, 1, time)                        
-                        next_order.strategic = True
-                        
-                        options.append( (expected_profit, order, next_order) )
+                
+            #Set all probabilities that do not meet the minimal probability requirement to 0 
+            prob = np.where(prob >= self.min_probability, prob, 0)
+
+            #Calculate the expected profits and choose the best arbitrage trade
+            expected_profits = profits*prob
+            optimal_price = np.argmax(expected_profits)
+            expected_profit = expected_profits[optimal_price]
+            
+            #If expected profit is positive then queue the arbitrage trade and buy/sell the good in the next order
+            if expected_profit > 0:
+                order = Order(1, self.tid, action, good, price, 1, time) 
+                next_order = Order(1, self.tid, opposite_action, good, optimal_price, 1, time)                        
+                next_order.strategic = True
+                
+                options.append( (expected_profit, order, next_order) )
                         
         if len(options) > 0:
             #Choose the best option
@@ -1426,7 +1457,7 @@ def online_average(old_avg, new_observation, n):
 
 endtime = 200
 periods = 5
-runs = 1000
+runs = 1
 
 
 utility_levels_prev = []
@@ -1444,7 +1475,7 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
     
     order_id = 1
 
-    spec = [("ZIP", 6)]
+    spec = [("ZIP", 2),("eGD", 2),("GDZ", 2)]
     trader_pairs, traders = generate_traders(spec)        
     exchange = Exchange(traders)
     
@@ -1452,7 +1483,7 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
 
         
   
-    for period in tqdm(range(1, periods+1), desc="Periods" , leave=False, disable=True):
+    for period in tqdm(range(1, periods+1), desc="Periods" , leave=False, disable=False):
         
         #Reset allocation for all traders
         for i in range(1, len(traders)+1):
