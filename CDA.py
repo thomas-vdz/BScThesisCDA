@@ -156,7 +156,7 @@ class Exchange(Orderbook):
         self.ob = Orderbook() #Orderbook
 
 
-    def process_order(self, time, order):
+    def process_order(self, time, period, run, order):
         trade = None
         successful_order = True
 
@@ -208,6 +208,8 @@ class Exchange(Orderbook):
 
                         #Create trade for book keeping (we might add type here if we want to save other transactions like cancellations)
                         trade = {"time" : time,
+                                 "period":period,
+                                 "run":run,
                                  "buyer_id" : buyer_id,
                                  "seller_id" : seller_id,
                                  "price" : price_sold,
@@ -273,6 +275,8 @@ class Exchange(Orderbook):
 
                         #Create trade for book keeping (we might add type here if we want to save other transactions like cancellations)
                         trade = {"time" : time,
+                                 "period":period,
+                                 "run":run,
                                  "buyer_id" : buyer_id,
                                  "seller_id" : seller_id,
                                  "price" : price_sold,
@@ -1149,7 +1153,7 @@ class Trader_GDZ(Trader_eGD):
         self.strategic_order = None
         self.arbitrage_order = None
         self.wait_time = None
-        self.min_probability = 0.6
+        self.min_probability = 0.5
         super().__init__(tid, ttype, talgo)
 
     def reset_allocation(self):
@@ -1208,10 +1212,9 @@ class Trader_GDZ(Trader_eGD):
         if trade["arbitrage"] is True and self.tid == trade["taker"]:
             #Arbitrage trade has been successfull
             t = deepcopy(trade)
-            try:
-                t["original_price"] = self.strategic_order.price
-            except:
-                pass
+
+            t["original_price"] = self.strategic_order.price
+
 
             #Add profit
             if self.strategic_order.otype == "ask":
@@ -1286,8 +1289,11 @@ class Trader_GDZ(Trader_eGD):
             pass
         elif random.random() < 0.2 and time>10:
             #20% chance of looking at arbitrage
-            
-            order = self.arbitrage_opportunity(time, lob)
+            try:
+                order = self.arbitrage_opportunity(time, lob)
+            except:
+                #singular matrix error 
+                order = None
             #If we do not spot an arbitrage opportunity we get regular order
             if order is None:
                 order = self.regular_order(time, lob)
@@ -1380,8 +1386,10 @@ class Trader_GDZ(Trader_eGD):
                 mlob[good][opposite_action] = [None, None]
     
                 #Estimate the probability of buying/selling it back later for a better price
-                prob = self.estimate_probability(good, opposite_action, mlob)
-    
+                prob_accept = self.estimate_probability(good, opposite_action, mlob)
+                prob_reject = self.estimate_probability(good, action, mlob)
+                
+                prob = (prob_accept)/(prob_accept+prob_reject)
                 x = np.arange(201)
                 #Create a vector of profit if sold at price x
                 if opposite_action == "ask":
@@ -1496,7 +1504,7 @@ def online_average(old_avg, new_observation, n):
 
 endtime = 200
 periods = 5
-runs = 1
+runs = 1000
 
 
 utility_levels_prev = []
@@ -1522,7 +1530,7 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
 
 
 
-    for period in tqdm(range(1, periods+1), desc="Periods" , leave=False, disable=False):
+    for period in tqdm(range(1, periods+1), desc="Periods" , leave=False, disable=True):
 
         #Reset allocation for all traders
         exchange.reset_allocations()
@@ -1588,7 +1596,7 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
 
 
                     #Process the order
-                    successful_order, trade = exchange.process_order(time, order)
+                    successful_order, trade = exchange.process_order(time, period, run, order)
                     
                     if order.strategic is True and successful_order is False:
                         print("kk")
@@ -1636,13 +1644,14 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
                             if trader.talgo == "GDZ" and order.strategic is True:
                                 #Allow trader to post the arbitrage trade immediatly
                                 a_order = trader.get_order(time, lob, second_order=True)
-                                successful_order, trade = exchange.process_order(time, a_order)
+                                successful_order, trade = exchange.process_order(time, period, run, a_order)
                                 a_order.oid = order_id
                                 order_id += 1
                                 orders.append(order)
                                 
                                 if successful_order == False:
-                                    raise Exception("Something went wrong")
+                                    #raise Exception("Something went wrong")
+                                    pass
                                 else:
                                     alob = exchange.publish_alob()
                                     for i in range(1, len(traders)+1):
