@@ -8,52 +8,13 @@ from datetime import datetime
 from operator import itemgetter
 import numpy as np
 
-from time import time as t
-
-
-def timer_func(func):
-    # This function shows the execution time of
-    # the function object passed
-    def wrap_func(*args, **kwargs):
-        t1 = t()
-        result = func(*args, **kwargs)
-        t2 = t()
-        print(f"Function {func.__name__!r} executed in {(t2-t1):.7f}s")
-        return result
-    return wrap_func
 
 
 class Order:
-    """
-    Order object
-
-    ...
-
-    Attributes
-    ----------
-    oid : int
-        Unique identifier for each order.
-    tid : int
-        Trader ID for trader who posted the order.
-    otype : str {"ask", "bid"}
-        Order type indicating if its a bid or an ask.
-    ptype : str {"X", "Y"}
-        Product type of the order.
-    price : int
-        Price per unit of the order.
-    quantity : int
-        Quantity of the good.
-    time : int
-        Number indicating in which timestep the order was posted.
-    accepted : bool, optional, default=False
-        Boolean indicating if order got accepted by the exchange
-    lob : dict
-        Limit order book at the time of posting to see why orders are rejected
-
-    """
+    """Object containing all information that an order requires"""
+    
     def __init__(self, oid, tid, otype, ptype, price, quantity, time):
-        """
-        Constructs all the necessary attributes for the order object.
+        """Intitializes the Order object.
 
         Parameters
         ----------
@@ -70,7 +31,14 @@ class Order:
         quantity : int
             Quantity of the good.
         time : int
-            Number indicating in which timestep the order was posted.
+            Number indicating in which time-step the order was posted.
+        accepted : bool, optional
+            Indicates if the order was accepted by the exchange
+        strategic : bool, optional
+            Indicates if the order was a strategic order
+        arbitrage : bool, optional
+            Indicates if the order was an arbitrage order
+        target_price : int, optional
         """
 
         self.oid = oid
@@ -91,9 +59,21 @@ class Order:
 
 
 class Orderbook:
-
+    """Class defining the orderbook of the exchange where current open orders are saved
+    
+    The orderbook has a depth of one meaning if a better order is posted the old one is deleted.
+    
+    """
     def __init__(self):
-        #Limit order book: Dictionary,
+        """Intitializes the Orderbook object.
+
+        Parameters
+        ----------
+        lob : dict
+            Contains the order objects for goods X and Y.
+        alob : dict
+            An anonimized version of the orderbook to publish to traders
+        """
         self.lob = {
             "X":{},
             "Y":{},
@@ -104,8 +84,8 @@ class Orderbook:
             }
 
     def anon_lob(self):
+        """Converts the orderbook to the anonymized version."""
         #Test if there is a best-ask/bid present and report it in the anon_lob else return a empty list
-        #For loop to avoid writing the same line 4 times
         for pair in [("X","bid"),("X","ask"),("Y","bid"),("Y","ask")]:
 
             #Check for each pair if there is an order in the orderbook and anonymize it
@@ -117,6 +97,23 @@ class Orderbook:
                 self.alob[pair[0]][pair[1]] = (None , None)
 
     def add_order_lob(self, order):
+        """Adds the order to the orderbook or rejects it if it does not meet the requirements
+        
+        Function adds an order to the orderbook only if it improves the best bid/ask of the given good.
+        It improves an ask if its lower than the current ask.
+        It improves a bid if its higher than the current bid. 
+        
+        Parameters
+        ----------
+        order, Order object
+            Specifies the order object to be processed.
+            
+        Returns
+        -------
+        bool
+            If the order was added to the orderbook return True.
+            If the order was rejected return False.
+        """
         #Check if orderbook is empty
         if self.lob[order.ptype].get(order.otype) is None:
             self.lob[order.ptype][order.otype] = order
@@ -128,7 +125,7 @@ class Orderbook:
                     self.lob[order.ptype][order.otype] = order
                     return True
                 else:
-                    #ignore the order
+                    #Order is rejected
                     return False
             elif order.otype == "ask":
                 #If the ordertype is ask replace the current bid if the price of the offer is lower
@@ -136,27 +133,77 @@ class Orderbook:
                     self.lob[order.ptype][order.otype] = order
                     return True
                 else:
-                    #If order did not improve orderbook then it does not count as a change so exchange should know this to avoid calling response
+                    #Order is rejected
                     return False
 
     def del_order_lob(self, ptype, otype):
-
+        """Deletes order from the orderbook and updates the anonymous orderbook
+        
+                
+        Parameters
+        ----------
+        ptype : str {"X", "Y"}
+            Product type of the order.
+        otype : str {"ask", "bid"}
+            Order type indicating if its a bid or an ask.  
+            
+        """
         del self.lob[ptype][otype]
         #Update the anonymous lob
         self.anon_lob()
 
 
-class Exchange(Orderbook):
+class Exchange():
+    """Class responsible for processing orders by traders
 
+    """
 
-    def __init__(self, traders):
-        self.minprice = 0  # minimum price in the system, in cents/pennies
-        self.maxprice = 201  # maximum price in the system, in cents/pennies
+    def __init__(self, traders, minprice=1, maxprice=201):
+        """Intitializes the Exchange object.
+
+        Parameters
+        ----------
+        minprice : int, default = 1
+            Minimum price allowed in the exchange
+        maxprice : int, default = 201
+            Maximum price allowed in the exchange
+        traders: list
+            List of trader objects containing all traders of the session
+        ob : Orderbook, default Orderbook
+            Orderbook object to save the orders that pass through the exchange
+        """
+        self.minprice = minprice  
+        self.maxprice = maxprice  
         self.traders = traders
-        self.ob = Orderbook() #Orderbook
-
+        self.ob = Orderbook() 
 
     def process_order(self, time, period, run, order):
+        """Processes an order given by a trader.
+        
+        Possible outcomes:
+            - Order results in a trade.
+            - Order gets accepted and added to the orderbook.
+            - Order gets rejected.
+            
+        ...
+        Parameters
+        ----------
+        time : int
+            Time-step in which the order was processed.
+        period : int
+            Period in which the order was processed.
+        run : int
+            Run in which the order was processed.
+        order: Order
+            The order to be processed by the exchange.
+            
+        Returns
+        -------
+        trade : dict
+            If order is accepted return trade information
+        successful_order: bool
+            Indicates if the order was accepted or not 
+        """
         trade = None
         successful_order = True
 
@@ -199,14 +246,11 @@ class Exchange(Orderbook):
 
                         #Full sell: remove order
                         else:
-
                             quant_sold = self.ob.lob[order.ptype]["bid"].quantity
                             price_sold = self.ob.lob[order.ptype]["bid"].price
                             self.ob.del_order_lob(order.ptype, "bid")
 
-
-
-                        #Create trade for book keeping (we might add type here if we want to save other transactions like cancellations)
+                        #Create trade for book keeping
                         trade = {"time" : time,
                                  "period":period,
                                  "run":run,
@@ -229,9 +273,7 @@ class Exchange(Orderbook):
                     successful_order = self.ob.add_order_lob(order)
 
             else:
-                #Add functionality here to record traders posting infeasible bids
                 successful_order = False
-                pass
 
         elif order.otype == "bid":
             #Check if they have enough money to post the bid
@@ -264,7 +306,6 @@ class Exchange(Orderbook):
                             quant_sold = order.quantity
                             price_sold = self.ob.lob[order.ptype]["ask"].price
 
-
                         #Full buy: remove order
                         else:
 
@@ -272,8 +313,7 @@ class Exchange(Orderbook):
                             price_sold = self.ob.lob[order.ptype]["ask"].price
                             self.ob.del_order_lob(order.ptype, "ask")
 
-
-                        #Create trade for book keeping (we might add type here if we want to save other transactions like cancellations)
+                        #Create trade for book keeping
                         trade = {"time" : time,
                                  "period":period,
                                  "run":run,
@@ -293,10 +333,8 @@ class Exchange(Orderbook):
                 else:
                     successful_order = self.ob.add_order_lob(order)
             else:
-                #Add functionality here to record traders posting infeasible bids
-                #print("Not enough money")
                 successful_order = False
-                pass
+
         else:
             raise ValueError("Offer was neither a bid nor an ask")
 
@@ -304,15 +342,23 @@ class Exchange(Orderbook):
 
 
     def reset_allocations(self):
+        """Resets the allocation of all traders and clears the orderbook"""
         #Resets allocation for all traders
         for i in range(1, len(traders)+1):
             traders[i].reset_allocation()
             
-        #Clear orderbook
+        #Clears orderbook
         self.ob = Orderbook()
 
     def publish_alob(self):
-        """Updates the anonymous LOB"""
+        """Updates anonymous orderbook
+        
+        ...
+        Returns
+        -------
+        dict
+            The new anoymized orderbook
+        """
         self.ob.anon_lob()
         return self.ob.alob
 
@@ -322,25 +368,54 @@ class Exchange(Orderbook):
 
 #Main trader class
 class Trader:
-
+    """Trader object can interact with the exchange to trade goods using orders."""
 
     def __init__(self, tid, ttype, talgo):
-        self.minprice = 1  # minimum price in the system, in cents/pennies
-        self.maxprice = 200  # maximum price in the system, in cents/pennies
-        self.tid = tid #Integer: Unique identifier for each trader
-        self.ttype = ttype #Integer: 1,2,3 specifies which utility function the trader has
-        self.talgo = talgo #String: What kind of trader it is: ZIP,ZIC eGD etc
-        self.balance = {}  #Dictionary containing the balance of the trader
-        self.blotter = [] #List of executed trades
+        """Intitializes the Trader object.
+
+        Parameters
+        ----------
+        minprice : int, default = 0
+            Minimum price allowed in the exchange.
+        maxprice : int, default = 200
+            Maximum price allowed in the exchange.
+        tid: int
+            Unique identifier for each instance of traders.
+        ttype: int {1,2,3}
+            Number indicating which type the trader is.
+        talgo: str
+            Name of the algorithm the trader uses.
+        balance: dict
+            Contains the balance for each good: Money,X and Y.
+        blotter: list
+            All executed trades
+        pending_orders: list
+            All orders that are currently pending in the exchange.
+        utility: float, default = 0 
+            The utility level of the trader.
+        active: bool
+            Indicates if the trader is willing to trade.
+            
+            
+        """
+        self.minprice = 0  
+        self.maxprice = 200  
+        self.tid = tid 
+        self.ttype = ttype 
+        self.talgo = talgo 
+        self.balance = {}  
+        self.blotter = [] 
         self.pending_orders = []
-        self.utility = 0 #Utility level of the trader
+        self.utility = 0 
         self.active = False
+        #Reset the allocation so traders start with the correct balance
         self.reset_allocation()
 
     def __str__(self):
         return f"Trader{self.tid}: Money:{self.balance['money']}, X:{self.balance['X']}, Y, {self.balance['Y']}"
 
     def reset_allocation(self):
+        """Resets the allocation and utility of a trader depending on the trader's type."""
         #Give starting balance given the trading type for the STABLE scarf economy
         if self.ttype == 1:
             balance = {"money":0,"X":10,"Y":0}
@@ -357,9 +432,19 @@ class Trader:
 
     def calc_utility(self, balance):
         """Function returning the current utility level given the balance and trader type.
-           If a new balance is given it calculates the utility of the new_balance else it calulates the agents current utility
+           
+        ...
+        Parameters
+        ----------
+        balance: dict
+            Balance of each good
+            
+        Returns
+        -------
+        utility : float
+            Utility level given trader type.
         """
-
+        
         if self.ttype == 1:
             utility = min( balance["money"]/400, balance["Y"]/20)
         elif self.ttype == 2:
@@ -372,7 +457,16 @@ class Trader:
         return utility
 
     def excess(self):
-        """Returns the excess allocation it has given the balance"""
+        """Returns the excess allocation of the given the balance.
+        
+        The excess allocation is defined as all the goods it could "give away" without losing utility.
+        
+        ...     
+        Returns
+        -------
+        excess: dict
+            Excess for each good.
+        """
         excess = {"money":0,"X":0,"Y":0}
 
         if self.ttype == 1:
@@ -413,8 +507,25 @@ class Trader:
         return excess
 
     def get_feasible_choices(self, orderbook, do_nothing=True, arbitrage=False):
-        """Returns a list of all feasible options a trader has given the restiction that it should always improve the orderbook  """
-
+        """Returns a list of all feasible options a trader has given the restiction that it should always improve the orderbook.
+           
+        If the argument arbitrage is True it looks for possible strategic orders given the tradertype
+        
+        ...
+        Parameters
+        ----------
+        orderbook : dict
+            Current anonymous orderbook.
+        do_nothing : bool, default = True
+            Indicates if do nothing should be included in feasible choices.
+        arbitrage : bool, default = False
+            Indicates if we should look for possible strategic orders.
+            
+        Returns
+        -------
+        choices : list
+            List of tuples of the form (action,good) for each feasible choice
+        """
         if arbitrage is True:
             choices = []
 
@@ -450,33 +561,20 @@ class Trader:
                 choices = [("do nothing"," ")]
             else:
                 choices = []
-
-
+            
+            #If we have the good we can sell it.
             if self.balance["X"] > 0:
                 choices.append( ("ask", "X") )
             if self.balance["Y"] > 0:
                 choices.append( ("ask", "Y") )
 
-            #Check if we can improve best bid
+            #Check if we can improve best bid so we can buy it.
             if self.balance["money"] > (orderbook["X"]["bid"][0] or 0):
                 choices.append( ("bid", "X") )
 
             if self.balance["money"] >  (orderbook["Y"]["bid"][0] or 0):
                 choices.append( ("bid", "Y") )
-
-            # if self.tid == 1:
-            #     if ("bid","X") in choices:
-            #         choices.remove(("bid","X") )
-            # elif self.tid == 2:
-            #     if ("bid","Y") in choices:
-            #         choices.remove(("bid","Y") )
-            # elif self.tid == 3:
-            #     if ("ask","X") in choices:
-            #         choices.remove(("ask","X") )
-            #     if ("ask","Y") in choices:
-            #         choices.remove(("ask","Y") )
-
-
+                
             return choices
 
     def add_pending_order(self, order):
@@ -484,7 +582,7 @@ class Trader:
         self.pending_orders.append(order)
 
     def check_pending_orders(self, lob, trade):
-        """Checks if orders are still pending in orderbook"""
+        """Checks if orders are still pending in orderbook if not deletes them."""
 
         if len(self.pending_orders) > 0:
             still_pending_orders = []
@@ -497,7 +595,19 @@ class Trader:
 
 
     def utility_gain_order(self, order):
-        """Function takes in an order and calculates the utility difference before and after assuming the order would result in an transaction"""
+        """Function takes in an order and calculates the utility difference before and after assuming the order would result in an transaction
+                 
+        ...
+        Parameters
+        ----------
+        order: Order
+            Potential order to be postedd
+            
+        Returns
+        -------
+        float
+            Difference between current utility and utility if order resulted in an transaction.
+        """
         new_balance = deepcopy(self.balance)
         #Check what the new balance will be if the order leads to a transaction
         if order.otype == "ask":
@@ -511,7 +621,15 @@ class Trader:
         return self.calc_utility(new_balance) - self.calc_utility(self.balance)
 
     def bookkeep(self, trade):
-        """Updates the balance of the trader and adds the trade to the blotter """
+        """Updates the balance of the trader and adds the trade to the blotter
+                 
+        ...
+        Parameters
+        ----------
+        trade: dict
+            Contains trade information.
+            
+        """
         #Add the transaction to blotter
         self.blotter.append(trade)
 
@@ -544,19 +662,34 @@ class Trader:
 
     #This method will be overwritten by the different traders
     def get_order(self, time, lob):
-        """ Given the orderbook give an order """
         pass
 
     #This method will be overwritten by the different traders
     def respond(self, time, lob, order):
-        """ Given the orderbook post an order """
         pass
 
 
 class Trader_ZI(Trader):
     """Trader with no intelligence restricted to posting offers it can complete"""
+    
     def get_order(self, time, lob):
-
+        """Gets the order the trader wants to submit to the exchange
+        
+        The ZI trader calculates possible orders and chooses one randomly
+                 
+        ...
+        Parameters
+        ----------
+        time: time
+            Current time-step
+        lob: dict
+            Current anonymized orderbook
+            
+        Returns
+        -------
+        Order
+            The order the the trader wants to submit to the exchange
+        """
         money = self.balance["money"]
 
         #Gives list which goods the trader has more than one of
@@ -624,8 +757,30 @@ class Trader_ZIP(Trader):
 
 
     def __init__(self, tid, ttype, talgo):
-        Trader.__init__(self, tid, ttype, talgo)
+        """Intitializes the Trader_ZIP object.
 
+        Parameters
+        ----------
+        last_price_bid: dict
+            Saves the last bid price for each good.
+        last_price_ask: dict
+            Saves the last ask price for each good.
+        gamma: float
+            Parameter used in formula default = Uniform[0.2,0.8].
+        cgamma_old: dict
+            Saves old gamma for each good.
+        kappa: float
+            Parameter used in formula default = Uniform[0.1,0.5].
+        gamma: float
+            Parameter used in formula default = Uniform[0.2,0.8].
+        shout_price : dict
+           Saves shoutprice price default: X  = Uniform[20,80], Y = Uniform[10,40].   
+        choice : tuple
+            Choice (action, good) for order this time-step.
+        buyer : bool
+            Indicates if buyer or seller.
+        """
+        Trader.__init__(self, tid, ttype, talgo)
         self.last_price_bid = {"X":None, "Y": None}
         self.last_price_ask = {"X":None, "Y": None}
         self.gamma = 0.2 + 0.6 * random.random()
@@ -634,10 +789,26 @@ class Trader_ZIP(Trader):
         self.shout_price = {"X": 20 + 60*random.random(), "Y": 10 + 30*random.random()}
         self.choice = None
         self.buyer = True
-        self.active = True
 
     def get_order(self, time, lob):
-
+        """Gets the order the trader wants to submit to the exchange
+        
+        The ZIP trader gets a list of feasible choices and chooses one randomly.
+        Then it returns the order given its internal shoutprice.
+                 
+        ...
+        Parameters
+        ----------
+        time: time
+            Current time-step
+        lob: dict
+            Current anonymized orderbook
+            
+        Returns
+        -------
+        Order
+            The order the the trader wants to submit to the exchange
+        """
         action = self.choice[0]
 
 
@@ -666,6 +837,7 @@ class Trader_ZIP(Trader):
                 return None
 
     def choose_action(self, lob):
+        """Chooses a random action at the beginning of the timestep to determine if it is a buyer or seller"""
         choices = self.get_feasible_choices(lob)
 
         #Select random action
@@ -679,7 +851,21 @@ class Trader_ZIP(Trader):
             self.buyer = True
 
     def respond(self, time, lob, order):
-
+        """Updates internal parameters
+        
+        The ZIP trader updates an internal shoutprice 
+                 
+        ...
+        Parameters
+        ----------
+        time: time
+            Current time-step
+        lob: dict
+            Current anonymized orderbook
+        order: Order
+            
+            
+        """
 
         def price_up(p_last, product):
             delta = 0.05 * random.random()
@@ -764,8 +950,20 @@ class Trader_ZIP(Trader):
 
 
 class Trader_eGD(Trader):
-    """
-    eGD Trader
+    """Class responsible for processing orders by traders
+    
+    ...
+
+    Attributes
+    ----------
+    history : dict
+        Saves the history of observed orders 
+    last_lob : dict
+        The previous orderbook
+    new_turn : bool, default = False
+        Keeps track if there is a new turn
+    e_price : dict
+       Saves estimated equilibrium price, default: X  = Uniform[20,80], Y = Uniform[10,40].
 
     """
     history = {
@@ -782,13 +980,31 @@ class Trader_eGD(Trader):
     e_price = {"X": 20 + 60*random.random(), "Y":10 + 30*random.random()}
 
     def __init__(self, tid, ttype, talgo):
+        """Intitializes the Trader_eGD object.
+
+        Parameters
+        ----------
+        markup: float, default = 0
+            Markup to apply to the order 
+        memory: int, default = 30
+            All orders are saved inbetween the last n=memory orders.
+        
+        """
         Trader.__init__(self, tid, ttype, talgo)
         self.markup = 0 #0.01 + 0.01 * random.random()
         self.memory = 30
-        self.possible_orders = []
 
 
     def trim_history(self, good):
+        """Trims the history to the correct length given by amount of memory.
+                 
+        ...
+        Parameters
+        ----------
+        good: str {"X","Y"}
+            The type of good.
+            
+        """
         n_trades = len([t for t in Trader_eGD.history[good] if t[2]==True])
 
         if n_trades > self.memory:
@@ -799,11 +1015,25 @@ class Trader_eGD(Trader):
 
 
     def p_bid_accept(self, good, price):
-        """ Estimates the probability a bid will be accepted given previous observations"""
-
-        if price == 0:
+        """ Estimates the probability a bid will be accepted given previous observations.
+                 
+        ...
+        Parameters
+        ----------
+        good: str {"X","Y"}
+            The type of good.
+        price: int
+            Price to caculate the probability for
+            
+        Returns
+        -------
+        float
+            probability the bid will be accepted
+        """
+        #Assume 0 prob for minprice and 1 prob for maxprice
+        if price == self.minprice:
             return 0
-        elif price == 200:
+        elif price == self.maxprice:
             return 1
 
         q_bid_acc = sum( [ q[1] for q in Trader_eGD.history[good] if (q[0] <= price  and q[2] == True and q[3] == "bid" ) ] )
@@ -819,11 +1049,25 @@ class Trader_eGD(Trader):
             return 0
 
     def p_ask_accept(self, good, price):
-        """ Estimates the probability an ask will be accepted given previous observations"""
-
-        if price == 0:
+        """ Estimates the probability a ask will be accepted given previous observations.
+                 
+        ...
+        Parameters
+        ----------
+        good: str {"X","Y"}
+            The type of good.
+        price: int
+            Price to caculate the probability for
+            
+        Returns
+        -------
+        float
+            probability the ask will be accepted
+        """
+        #Assume 1 prob for minprice and 0 prob for maxprice
+        if price == self.minprice:
             return 1
-        elif price == 200:
+        elif price == self.maxprice:
             return 0
 
         q_ask_acc = sum( [ q[1] for q in Trader_eGD.history[good] if (q[0] >= price  and q[2] == True and q[3] == "ask" ) ] )
@@ -839,7 +1083,33 @@ class Trader_eGD(Trader):
             return 0
 
     def GD_spline(self, good, action, a0, a1):
-
+        """ Creates a cubic polynomial between two prices
+        
+        This spline has the following properties:
+            - f(a0) = a0
+            - f(a1) = a1
+            - f'(a0) = 0
+            - f'(a1) = 0
+        We assume that a0 < a1.
+        
+        ...
+        Parameters
+        ----------
+        good: str {"X","Y"}
+            The type of good.
+        price: int
+            Price to caculate the probability for
+        a0: int
+            Lower price
+        a1: int
+            Larger price
+        
+            
+        Returns
+        -------
+        function
+            returns the cubic polynomial which can be used to calculate the values inbetween 
+        """
         if a0 > a1:
             raise ValueError("We need that a0 > a1")
 
@@ -850,7 +1120,6 @@ class Trader_eGD(Trader):
 
         inv_mat = np.linalg.inv(mat)
 
-        #Here we assume that the probabilty that you can buy for 200 is 1 and 0 for 0
         if action == "bid":
             p0 = self.p_bid_accept(good, a0)
             p1 = self.p_bid_accept(good, a1)
@@ -867,7 +1136,25 @@ class Trader_eGD(Trader):
 
 
     def estimate_probability(self, good, action, lob):
-
+        """ Creates a probability vector from minprice to maxprice
+        
+        This function uses the p_bid and p_ask functions to calculate the probability 
+        for all observed values of a bid or ask and interpolates for the missing
+        values in between.
+        
+        ...
+        Parameters
+        ----------
+        good: str {"X","Y"}
+            The type of good.
+        action: str {"bid", "ask"}
+            Bid or Ask
+        
+        Returns
+        -------
+        array
+            probabilites the ask/bid will be accepted for each price from 0 to the maxprice.
+        """
         best_bid = (lob[good]["bid"][0] or 0)
         best_ask = (lob[good]["ask"][0] or 200)
 
@@ -990,16 +1277,27 @@ class Trader_eGD(Trader):
         else:
             raise ValueError(f" value {action} not valid please enter bid or ask ")
 
-    def equilibrium_price(self, good, lob, verbose=False):
+    def equilibrium_price(self, good, lob):
+        """Estimating an equilibrium price by calculating where the probability of a bid acceptance is equal to an ask acceptance
+        
+        This is done by calculating a vector of bida/ask probilities for different prices and checking where the absolute difference is minimal.
+       
+        ...
+        Parameters
+        ----------
+        good: str {"X","Y"}
+            The type of good.
+        lob: dict
+            Current orderbook.
+        
+        Returns
+        -------
+        int
+            Estimated equilibrium price
         """
-            Estimating an equilibrium price by calculating where the probability of a bid acceptance is equal to an ask acceptance
-            This is done by calculating a vector of bida/ask probilities for different prices and checking where the absolute difference is minimal.
-        """
-
         #Extract all the values for which p_ask_accept is defined and interpolate for the others
         his = Trader_eGD.history[good]
-
-
+        
         prices_bid =  [h[0] for h in his if h[3] == "bid"]
         prices_ask =  [h[0] for h in his if h[3] == "ask"]
 
@@ -1010,14 +1308,13 @@ class Trader_eGD(Trader):
             elif good == "Y":
                 price = 10 + 30*random.random()
             return price
-
+        
 
         ya = self.estimate_probability(good, "ask", lob)
         yb = self.estimate_probability(good, "bid", lob)
 
-        #Check where the absolute difference is smallest since there we have that pbid = pask
+        #Check for what price the absolute difference is smallest since there we have that pbid = pask
         absdiff = abs(ya -yb)
-
 
         eq_price = np.argmin(absdiff)
 
@@ -1025,8 +1322,25 @@ class Trader_eGD(Trader):
 
 
 
-    def get_order(self, time, lob, verbose=False):
-
+    def get_order(self, time, lob):
+        """Gets the order the trader wants to submit to the exchange
+        
+        The eGD trader gets a list of feasible choices and chooses one randomly.
+        Pricing is based on an expectaion price which is calculated using the GD belief functions.
+                 
+        ...
+        Parameters
+        ----------
+        time: time
+            Current time-step
+        lob: dict
+            Current anonymized orderbook
+            
+        Returns
+        -------
+        Order
+            The order the the trader wants to submit to the exchange
+        """
         if self.active is True:
             quantity = 1
             choices = self.get_feasible_choices(lob, False)
@@ -1072,7 +1386,6 @@ class Trader_eGD(Trader):
                     order = Order(1, self.tid, action, good, shout_price, quantity, time)
                     possible_orders.append( (self.utility_gain_order(order) , order ) )
 
-                self.possible_orders = possible_orders
             try:
                 best = max(possible_orders,key=itemgetter(0))
             except:
@@ -1090,7 +1403,21 @@ class Trader_eGD(Trader):
 
 
     def respond(self, time, lob, order):
-        """
+        """Updates internal parameters
+        
+        The eGD trader calculates new expected equilibrium price.
+        Different instances of eGD share the same equilibrium price.
+                 
+        ...
+        Parameters
+        ----------
+        time: time
+            Current time-step
+        lob: dict
+            Current anonymized orderbook
+        order: Order
+            
+            
         """
 
         if Trader_eGD.new_turn:
@@ -1145,7 +1472,18 @@ class Trader_eGD(Trader):
 
 
 class Trader_GDZ(Trader_eGD):
+    """
+    Class responsible for processing orders by traders
+    
+    ...
 
+    Attributes
+    ----------
+    lob : dict
+        Contains the order objects for goods X and Y.
+    alob : dict
+        An anonimized version of the orderbook to publish to traders
+    """
     def __init__(self, tid, ttype, talgo):        
         self.arbitrage_trades = []
         self.rejected_trades = []
@@ -1181,7 +1519,15 @@ class Trader_GDZ(Trader_eGD):
 
 
     def bookkeep(self, trade):
-        """Updates the balance of the trader and adds the trade to the blotter """
+        """Modified from Trader class: Updates balances and resets arbitrage order if it was successful
+                 
+        ...
+        Parameters
+        ----------
+        trade: dict
+            Contains trade information.
+            
+        """
         #Add the transaction to blotter
         self.blotter.append(trade)
 
@@ -1237,7 +1583,28 @@ class Trader_GDZ(Trader_eGD):
         #Return new balance and utility level after transaction
         return [self.balance , self.utility]
 
-    def get_order(self, time, lob, second_order=False, verbose=False):
+    def get_order(self, time, lob, second_order=False):
+        """Gets the order the trader wants to submit to the exchange
+        
+        The GDZ trader behaves as eGD trader 80% of the time 
+        but has an 20% probability to look at an arbitrage opportunity.
+                 
+        ...
+        Parameters
+        ----------
+        time: time
+            Current time-step
+        lob: dict
+            Current anonymized orderbook
+        second_order: bool, default = False
+            Tells the trader if it has an order which it must immediatly post. 
+            
+            
+        Returns
+        -------
+        Order
+            The order the the trader wants to submit to the exchange
+        """
         order = None
         
         #If we have an arbitrage order post that one else give regular one
@@ -1350,7 +1717,6 @@ class Trader_GDZ(Trader_eGD):
                 order = Order(1, self.tid, action, good, shout_price, quantity, time)
                 possible_orders.append( (self.utility_gain_order(order) , order ) )
 
-            self.possible_orders = possible_orders
 
         try:
             best = max(possible_orders,key=itemgetter(0))
@@ -1503,8 +1869,8 @@ def online_average(old_avg, new_observation, n):
 
 
 endtime = 200
-periods = 5
-runs = 1000
+periods = 10
+runs = 1
 
 
 utility_levels_prev = []
@@ -1522,7 +1888,7 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
 
     order_id = 1
 
-    spec = [("ZIP", 3),("GDZ", 3)]
+    spec = [("ZIP", 3),("GDZ", 2)]
     trader_pairs, traders = generate_traders(spec)
     exchange = Exchange(traders)
 
@@ -1634,7 +2000,9 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
                             trade["seller_algo"] = traders[seller_id].talgo
                             trade["seller_util"] = seller_util
                             trade["seller_balance"] = seller_balance
-
+                            
+                            if len(traders[10].history["X"])> 20:
+                                raise Exception("YUY")
 
                             #Append it to the history using deepcopy
                             trade_history.append(deepcopy(trade))
