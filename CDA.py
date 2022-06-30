@@ -11,7 +11,7 @@ import numpy as np
 
 
 class Order:
-    """Object containing all information that an order requires"""
+    """Object containing all information that an order requires."""
     
     def __init__(self, oid, tid, otype, ptype, price, quantity, time):
         """Intitializes the Order object.
@@ -35,9 +35,9 @@ class Order:
         accepted : bool, optional
             Indicates if the order was accepted by the exchange
         strategic : bool, optional
-            Indicates if the order was a strategic order
+            Indicates if the order was a strategic order.
         arbitrage : bool, optional
-            Indicates if the order was an arbitrage order
+            Indicates if the order was an arbitrage order.
         target_price : int, optional
         """
 
@@ -59,7 +59,7 @@ class Order:
 
 
 class Orderbook:
-    """Class defining the orderbook of the exchange where current open orders are saved
+    """Class defining the orderbook of the exchange where current open orders are saved.
     
     The orderbook has a depth of one meaning if a better order is posted the old one is deleted.
     
@@ -72,7 +72,7 @@ class Orderbook:
         lob : dict
             Contains the order objects for goods X and Y.
         alob : dict
-            An anonimized version of the orderbook to publish to traders
+            An anonimized version of the orderbook to publish to traders.
         """
         self.lob = {
             "X":{},
@@ -97,7 +97,7 @@ class Orderbook:
                 self.alob[pair[0]][pair[1]] = (None , None)
 
     def add_order_lob(self, order):
-        """Adds the order to the orderbook or rejects it if it does not meet the requirements
+        """Adds the order to the orderbook or rejects it if it does not meet the requirements.
         
         Function adds an order to the orderbook only if it improves the best bid/ask of the given good.
         It improves an ask if its lower than the current ask.
@@ -137,7 +137,7 @@ class Orderbook:
                     return False
 
     def del_order_lob(self, ptype, otype):
-        """Deletes order from the orderbook and updates the anonymous orderbook
+        """Deletes order from the orderbook and updates the anonymous orderbook.
         
                 
         Parameters
@@ -154,7 +154,7 @@ class Orderbook:
 
 
 class Exchange():
-    """Class responsible for processing orders by traders
+    """Class responsible for processing orders by traders.
 
     """
 
@@ -164,13 +164,13 @@ class Exchange():
         Parameters
         ----------
         minprice : int, default = 1
-            Minimum price allowed in the exchange
+            Minimum price allowed in the exchange.
         maxprice : int, default = 201
-            Maximum price allowed in the exchange
+            Maximum price allowed in the exchange.
         traders: list
-            List of trader objects containing all traders of the session
+            List of trader objects containing all traders of the session.
         ob : Orderbook, default Orderbook
-            Orderbook object to save the orders that pass through the exchange
+            Orderbook object to save the orders that pass through the exchange.
         """
         self.minprice = minprice  
         self.maxprice = maxprice  
@@ -200,9 +200,9 @@ class Exchange():
         Returns
         -------
         trade : dict
-            If order is accepted return trade information
+            If order is accepted return trade information.
         successful_order: bool
-            Indicates if the order was accepted or not 
+            Indicates if the order was accepted or not .
         """
         trade = None
         successful_order = True
@@ -351,13 +351,13 @@ class Exchange():
         self.ob = Orderbook()
 
     def publish_alob(self):
-        """Updates anonymous orderbook
+        """Updates anonymous orderbook.
         
         ...
         Returns
         -------
         dict
-            The new anoymized orderbook
+            The new anoymized orderbook.
         """
         self.ob.anon_lob()
         return self.ob.alob
@@ -388,7 +388,7 @@ class Trader:
         balance: dict
             Contains the balance for each good: Money,X and Y.
         blotter: list
-            All executed trades
+            All executed trades.
         pending_orders: list
             All orders that are currently pending in the exchange.
         utility: float, default = 0 
@@ -437,7 +437,7 @@ class Trader:
         Parameters
         ----------
         balance: dict
-            Balance of each good
+            Balance of each good.
             
         Returns
         -------
@@ -509,7 +509,7 @@ class Trader:
     def get_feasible_choices(self, orderbook, do_nothing=True, arbitrage=False):
         """Returns a list of all feasible options a trader has given the restiction that it should always improve the orderbook.
            
-        If the argument arbitrage is True it looks for possible strategic orders given the tradertype
+        If the argument arbitrage is True it looks for possible strategic orders given the tradertype.
         
         ...
         Parameters
@@ -524,7 +524,7 @@ class Trader:
         Returns
         -------
         choices : list
-            List of tuples of the form (action,good) for each feasible choice
+            List of tuples of the form (action,good) for each feasible choice.
         """
         if arbitrage is True:
             choices = []
@@ -595,13 +595,13 @@ class Trader:
 
 
     def utility_gain_order(self, order):
-        """Function takes in an order and calculates the utility difference before and after assuming the order would result in an transaction
+        """Function takes in an order and calculates the utility difference before and after assuming the order would result in an transaction.
                  
         ...
         Parameters
         ----------
         order: Order
-            Potential order to be postedd
+            Potential order to be posted.
             
         Returns
         -------
@@ -621,7 +621,7 @@ class Trader:
         return self.calc_utility(new_balance) - self.calc_utility(self.balance)
 
     def bookkeep(self, trade):
-        """Updates the balance of the trader and adds the trade to the blotter
+        """Updates the balance of the trader and adds the trade to the blotter.
                  
         ...
         Parameters
@@ -673,9 +673,9 @@ class Trader_ZI(Trader):
     """Trader with no intelligence restricted to posting offers it can complete"""
     
     def get_order(self, time, lob):
-        """Gets the order the trader wants to submit to the exchange
+        """Gets the order the trader wants to submit to the exchange.
         
-        The ZI trader calculates possible orders and chooses one randomly
+        The ZI trader calculates possible orders and chooses one randomly.
                  
         ...
         Parameters
@@ -688,7 +688,7 @@ class Trader_ZI(Trader):
         Returns
         -------
         Order
-            The order the the trader wants to submit to the exchange
+            The order the the trader wants to submit to the exchange.
         """
         money = self.balance["money"]
 
@@ -800,14 +800,14 @@ class Trader_ZIP(Trader):
         Parameters
         ----------
         time: time
-            Current time-step
+            Current time-step.
         lob: dict
-            Current anonymized orderbook
+            Current anonymized orderbook.
             
         Returns
         -------
         Order
-            The order the the trader wants to submit to the exchange
+            The order the the trader wants to submit to the exchange.
         """
         action = self.choice[0]
 
@@ -851,19 +851,19 @@ class Trader_ZIP(Trader):
             self.buyer = True
 
     def respond(self, time, lob, order):
-        """Updates internal parameters
+        """Updates internal parameters.
         
-        The ZIP trader updates an internal shoutprice 
+        The ZIP trader updates an internal shoutprice. 
                  
         ...
         Parameters
         ----------
         time: time
-            Current time-step
+            Current time-step.
         lob: dict
-            Current anonymized orderbook
+            Current anonymized orderbook.
         order: Order
-            
+            Current order.
             
         """
 
@@ -985,7 +985,7 @@ class Trader_eGD(Trader):
         Parameters
         ----------
         markup: float, default = 0
-            Markup to apply to the order 
+            Markup to apply to the order .
         memory: int, default = 30
             All orders are saved inbetween the last n=memory orders.
         
@@ -1023,12 +1023,12 @@ class Trader_eGD(Trader):
         good: str {"X","Y"}
             The type of good.
         price: int
-            Price to caculate the probability for
+            Price to caculate the probability for.
             
         Returns
         -------
         float
-            probability the bid will be accepted
+            probability the bid will be accepted.
         """
         #Assume 0 prob for minprice and 1 prob for maxprice
         if price == self.minprice:
@@ -1057,12 +1057,12 @@ class Trader_eGD(Trader):
         good: str {"X","Y"}
             The type of good.
         price: int
-            Price to caculate the probability for
+            Price to caculate the probability for.
             
         Returns
         -------
         float
-            probability the ask will be accepted
+            probability the ask will be accepted.
         """
         #Assume 1 prob for minprice and 0 prob for maxprice
         if price == self.minprice:
@@ -1098,17 +1098,17 @@ class Trader_eGD(Trader):
         good: str {"X","Y"}
             The type of good.
         price: int
-            Price to caculate the probability for
+            Price to caculate the probability for.
         a0: int
-            Lower price
+            Lower price.
         a1: int
-            Larger price
+            Larger price.
         
             
         Returns
         -------
         function
-            returns the cubic polynomial which can be used to calculate the values inbetween 
+            returns the cubic polynomial which can be used to calculate the values in between.
         """
         if a0 > a1:
             raise ValueError("We need that a0 > a1")
@@ -1484,17 +1484,33 @@ class Trader_GDZ(Trader_eGD):
     alob : dict
         An anonimized version of the orderbook to publish to traders
     """
-    def __init__(self, tid, ttype, talgo):        
+    def __init__(self, tid, ttype, talgo): 
+        """Intitializes the Trader_eGD object.
+
+        Parameters
+        ----------
+        arbitrage_trades: list
+            Saves all completed arbitrage trades in the run.
+        rejected_trades: list
+            Saves all rejected arbitrage trades in the run.
+        strategic_order: Order, default = None
+            Saves the current strategic order
+        arbitrage_order: Order, default = None
+            Saves the current arbitrage order
+        min_probability: float, default = 0.5
+            Parameter that controls risk aversion
+        
+        """
         self.arbitrage_trades = []
         self.rejected_trades = []
         #Saves the order where you lost on so we can
         self.strategic_order = None
         self.arbitrage_order = None
-        self.wait_time = None
         self.min_probability = 0.5
         super().__init__(tid, ttype, talgo)
 
     def reset_allocation(self):
+        """Resets the allocation and utility and arbitrage/strategic trades"""
         #Give starting balance given the trading type for the STABLE scarf economy
         if self.ttype == 1:
             balance = {"money":0,"X":10,"Y":0}
@@ -1514,12 +1530,13 @@ class Trader_GDZ(Trader_eGD):
 
         self.strategic_order = None
         self.arbitrage_order = None
-        self.wait_time = None
 
 
 
     def bookkeep(self, trade):
-        """Modified from Trader class: Updates balances and resets arbitrage order if it was successful
+        """Modified from Trader class: 
+        Updates balances and resets arbitrage order if it was successful.
+        It also saves the completed arbitrage trade to arbitrage_orders.
                  
         ...
         Parameters
@@ -1575,7 +1592,6 @@ class Trader_GDZ(Trader_eGD):
             #Append arbitrage trade and reset variables
             self.strategic_order = None
             self.arbitrage_trade = None
-            self.wait_time = None
 
             self.arbitrage_trades.append(t)
 
@@ -1675,6 +1691,21 @@ class Trader_GDZ(Trader_eGD):
 
 
     def regular_order(self, time, lob):
+        """Returns a regular order following the eGD rules
+        
+        ...
+        Parameters
+        ----------
+        time: time
+            Current time-step
+        lob: dict
+            Current anonymized orderbook
+            
+        Returns
+        -------
+        Order
+            The order the the trader wants to submit to the exchange
+        """
         quantity = 1
         choices = self.get_feasible_choices(lob, False)
         possible_orders = []
@@ -1728,8 +1759,23 @@ class Trader_GDZ(Trader_eGD):
         else:
             return None
         
-    def arbitrage_opportunity(self, time, lob, verbose=False):
-
+    def arbitrage_opportunity(self, time, lob):
+        """Calculates a feasible arbitrage move.
+        It returns the corresponding strategic and saves the arbitrage trade.
+        
+        ...
+        Parameters
+        ----------
+        time: time
+            Current time-step
+        lob: dict
+            Current anonymized orderbook
+            
+        Returns
+        -------
+        Order
+            The strategic order to post
+        """
         choices = self.get_feasible_choices(lob, do_nothing=False, arbitrage=True)
         #Check in the lob if we can find a possible arbitrage trade
         options = []
@@ -1799,7 +1845,24 @@ class Trader_GDZ(Trader_eGD):
 
 #-------------------------- Other functions --------------------------------
 def create_csv(file_name, dictionaries):
-    """Creates csv file from a list of dictionaries"""
+    """Creates csv file from a list of dictionaries
+    
+    It generates the csv file in the /results folder where the file lives.
+    Also appends the timestamp when the results were generated.
+    
+    ...
+    Parameters
+    ----------
+    file_name: str
+        Current time-step
+    dictionaries: list
+        List of dictionaries makes a row for each dictionary
+        
+    Returns
+    -------
+    Order
+        The order the the trader wants to submit to the exchange
+    """
     #Get the keys of the dictionary as column names
     keys = dictionaries[0].keys()
 
@@ -1829,8 +1892,21 @@ def create_csv(file_name, dictionaries):
     file.close()
 
 def trader_type(tid, ttype, talgo):
-        """Function returns the correct trader object given the talgo value and trader type"""
-
+        """Function returns the correct trader object given the talgo value and trader type
+        
+        ...
+        Parameters
+        ----------
+        ttype: int
+            Trader Type
+        talgo: str
+            Name of the algorithm
+            
+        Returns
+        -------
+        Trader Object
+            The correct trader object corresponding to ttype and talgo
+        """
         #Select the correct trader algorithm
         if talgo == 'ZI':
             return Trader_ZI(tid, ttype, talgo)
@@ -1844,8 +1920,18 @@ def trader_type(tid, ttype, talgo):
             raise ValueError(f"Trader of type {talgo} does not exist")
 
 def generate_traders(spec):
-    """Gives traders based on a list of tuples containing tradertype and how many multiples of 3 traders per type """
-
+    """Gives traders based on a list of tuples containing tradertype and how many multiples of 3 traders per type
+    ...
+    Parameters
+    ----------
+    spec: list
+        List of tuples specifing trader algorithm and amount (talgo, n).
+        
+    Returns
+    -------
+    list
+        List of traders given the spec
+    """
     traders = {}
     trader_pairs = []
     trader_id = 1
@@ -1861,7 +1947,22 @@ def generate_traders(spec):
     return trader_pairs, traders
 
 def online_average(old_avg, new_observation, n):
-    """Calculates the new average when a new observation is addeself.regular_order(time, lob)d"""
+    """Calculates the new average when a new observation is added.
+    ...
+    Parameters
+    ----------
+    old_avg: float
+        The average from n-1
+    new_observation: float
+        The new observation that has to be added to the average.
+    n: int
+        Current n after adding new_observation.
+        
+    Returns
+    -------
+    float
+        The new average.
+    """
     return old_avg*((n-1)/n) + new_observation/n
 
 #-------------------------- END Other functions -----------------------------
@@ -1869,7 +1970,7 @@ def online_average(old_avg, new_observation, n):
 
 
 endtime = 200
-periods = 10
+periods = 5
 runs = 1
 
 
@@ -1888,7 +1989,7 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
 
     order_id = 1
 
-    spec = [("ZIP", 3),("GDZ", 2)]
+    spec = [("ZIP", 3),("eGD", 2)]
     trader_pairs, traders = generate_traders(spec)
     exchange = Exchange(traders)
 
@@ -1915,8 +2016,6 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
                                            "ttype": j,
                                            "time": time,
                                            "period": period} )
-
-
 
             lob = exchange.publish_alob()
 
@@ -2001,8 +2100,6 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
                             trade["seller_util"] = seller_util
                             trade["seller_balance"] = seller_balance
                             
-                            if len(traders[10].history["X"])> 20:
-                                raise Exception("YUY")
 
                             #Append it to the history using deepcopy
                             trade_history.append(deepcopy(trade))
@@ -2053,7 +2150,6 @@ for run in tqdm(range(1, runs+1) , desc="Run"):
             rejected_arbitrage.extend(traders[i].rejected_trades)
 
     utility_levels_prev = deepcopy(utility_levels)
-
 
 #Create all the csv files for plotting
 for pair in [("util", utility_levels_prev),("trade", trade_history),("excess", excess_goods),("arbitrage", trades_arbitrage)]:
